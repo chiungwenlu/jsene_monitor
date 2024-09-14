@@ -34,7 +34,7 @@ const scrapeLogic = async (res) => {
     const textSelector = await page.waitForSelector(
       "text/Customize and automate"
     );
-    const fullTitle = await textSelector.evaluate((el) => el.textContent);
+    const fullTitle = await page.title();
 
     // Print the full title
     const logStatement = `The title of this blog post is ${fullTitle}`;
