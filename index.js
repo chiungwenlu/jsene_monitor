@@ -5,7 +5,7 @@ require("dotenv").config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.get("/", async (req, res) => {
+async function scrapeData() {
   const browser = await puppeteer.launch({
     args: [
       "--disable-setuid-sandbox",
@@ -23,25 +23,36 @@ app.get("/", async (req, res) => {
     const page = await browser.newPage();
     console.log('Target page loaded');
 
-    // 導航到目標網站
-    await page.goto("https://developer.chrome.com/");
+    // 1. 前往登入頁面
+    await page.goto('https://www.jsene.com/juno/Login.aspx');
 
-    // 抓取網站的 <title> 標籤內容
-    const fullTitle = await page.title();
+    // 2. 填入帳號和密碼
+    await page.type('#T_Account', 'ExcelTek');  // 帳號
+    await page.type('#T_Password', 'ExcelTek');  // 密碼
 
-    // 印出完整標題
-    const logStatement = `The title of this page is: ${fullTitle}`;
-    console.log(logStatement);
+    // 3. 點擊登入按鈕並等待導航完成
+    await Promise.all([
+      page.click('#Btn_Login'),
+      page.waitForNavigation({ waitUntil: 'networkidle0' }) // 等待頁面完全載入
+    ]);
 
-    // 將標題回傳到用戶端
-    res.send(logStatement);
-  } catch (e) {
-    console.error(e);
-    res.send(`Something went wrong while running Puppeteer: ${e}`);
+    // 抓取 PM10 數據（第一個站點）
+    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
+    const iframeElement184 = await page.$('iframe#ifs');
+    const iframe184 = await iframeElement184.contentFrame();
+    const pm10Data184 = await iframe184.evaluate(() => {
+      const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+      return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+    });
+    console.log('理虹(184) PM10 數據:', pm10Data184);
+
+  } catch (error) {
+    console.error('抓取數據時出錯:', error);
   } finally {
+    // 關閉瀏覽器
     await browser.close();
   }
-});
+}
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
