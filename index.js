@@ -36,24 +36,23 @@ async function scrapeData() {
       page.waitForNavigation({ waitUntil: 'networkidle0' }) // 等待頁面完全載入
     ]);
 
-    // 抓取 PM10 數據（第一個站點）
+    // 4. 抓取 PM10 數據（第一個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
-    const iframeElement184 = await page.$('iframe#ifs');
+    const iframeElement184 = await page.waitForSelector('iframe#ifs');
     const iframe184 = await iframeElement184.contentFrame();
     const pm10Data184 = await iframe184.evaluate(() => {
       const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
       return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
     console.log('理虹(184) PM10 數據:', pm10Data184);
-
   } catch (error) {
     console.error('抓取數據時出錯:', error);
   } finally {
-    // 關閉瀏覽器
-    await browser.close();
+    await browser.close(); // 確保瀏覽器正常關閉
   }
 }
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
+  scrapeData(); // 啟動伺服器後抓取數據
 });
