@@ -45,14 +45,25 @@ async function scrapeData() {
       return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
     console.log('理虹(184) PM10 數據:', pm10Data184);
+    return pm10Data184;  // 返回抓取的數據
   } catch (error) {
     console.error('抓取數據時出錯:', error);
+    return null;  // 如果出錯，返回 null
   } finally {
     await browser.close(); // 確保瀏覽器正常關閉
   }
 }
 
+// 定義根路由處理器
+app.get("/", async (req, res) => {
+  const data = await scrapeData();  // 調用 scrapeData 函數抓取數據
+  if (data) {
+    res.send(`理虹(184) PM10 數據: ${data}`);  // 將數據顯示給用戶
+  } else {
+    res.send("無法抓取數據");
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
-  scrapeData(); // 啟動伺服器後抓取數據
 });
