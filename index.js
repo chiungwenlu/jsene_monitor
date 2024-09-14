@@ -1,5 +1,9 @@
+const express = require("express");
 const puppeteer = require("puppeteer");
 require("dotenv").config();
+
+const app = express();
+const PORT = process.env.PORT || 4000;
 
 async function scrapeData() {
   const browser = await puppeteer.launch({
@@ -65,3 +69,8 @@ setInterval(scrapeData, 300000);
 // 初次運行時立即執行一次
 scrapeData();
 
+
+app.listen(PORT, () => {
+  console.log(`Listening on port ${PORT}`);
+  scrapeData(); // 啟動伺服器後抓取數據
+});
