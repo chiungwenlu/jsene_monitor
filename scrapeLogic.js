@@ -17,28 +17,17 @@ const scrapeLogic = async (res) => {
   try {
     const page = await browser.newPage();
 
+    // 導航到目標網站
     await page.goto("https://developer.chrome.com/");
 
-    // Set screen size
-    await page.setViewport({ width: 1080, height: 1024 });
-
-    // Type into search box
-    await page.type(".search-box__input", "automate beyond recorder");
-
-    // Wait and click on first result
-    const searchResultSelector = ".search-box__link";
-    await page.waitForSelector(searchResultSelector);
-    await page.click(searchResultSelector);
-
-    // Locate the full title with a unique string
-    const textSelector = await page.waitForSelector(
-      "text/Customize and automate"
-    );
+    // 抓取網站的 <title> 標籤內容
     const fullTitle = await page.title();
 
-    // Print the full title
-    const logStatement = `The title of this blog post is ${fullTitle}`;
+    // 印出完整標題
+    const logStatement = `The title of this page is: ${fullTitle}`;
     console.log(logStatement);
+
+    // 將標題回傳到用戶端
     res.send(logStatement);
   } catch (e) {
     console.error(e);
