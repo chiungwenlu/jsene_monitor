@@ -1,9 +1,5 @@
-const express = require("express");
 const puppeteer = require("puppeteer");
 require("dotenv").config();
-
-const app = express();
-const PORT = process.env.PORT || 4000;
 
 async function scrapeData() {
   const browser = await puppeteer.launch({
@@ -45,25 +41,27 @@ async function scrapeData() {
       return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
     console.log('理虹(184) PM10 數據:', pm10Data184);
-    return pm10Data184;  // 返回抓取的數據
+
+    // 抓取 PM10 數據（第二個站點）
+    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
+    const iframeElement185 = await page.$('iframe#ifs');
+    const iframe185 = await iframeElement185.contentFrame();
+    const pm10Data185 = await iframe185.evaluate(() => {
+      const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+      return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+    });
+    console.log('理虹(185) PM10 數據:', pm10Data185);
+
   } catch (error) {
     console.error('抓取數據時出錯:', error);
-    return null;  // 如果出錯，返回 null
   } finally {
     await browser.close(); // 確保瀏覽器正常關閉
   }
 }
 
-// 定義根路由處理器
-app.get("/", async (req, res) => {
-  const data = await scrapeData();  // 調用 scrapeData 函數抓取數據
-  if (data) {
-    res.send(`理虹(184) PM10 數據: ${data}`);  // 將數據顯示給用戶
-  } else {
-    res.send("無法抓取數據");
-  }
-});
+// 設置每5分鐘（300000毫秒）執行一次抓取任務
+setInterval(scrapeData, 300000);
 
-app.listen(PORT, () => {
-  console.log(`Listening on port ${PORT}`);
-});
+// 初次運行時立即執行一次
+scrapeData();
+
