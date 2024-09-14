@@ -63,12 +63,34 @@ async function scrapeData() {
   }
 }
 
-// 設置每5分鐘（300000毫秒）執行一次抓取任務
-setInterval(scrapeData, 300000);
+// 設置 ping 路由接收 pinger-app 的請求
+app.post('/ping', (req, res) => {
+  console.log('來自 pinger-app 的訊息:', req.body);
+  res.json({ message: 'pong' });
+});
+
+// 發送 ping 請求到 pinger-app
+function sendPing() {
+  axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
+    .then(response => {
+      console.log('來自 pinger-app 的回應:', response.data);
+    })
+    .catch(error => {
+      console.error('Error pinging pinger-app:', error);
+    });
+}
+
+// 每5分鐘發送一次請求
+setInterval(sendPing, 5 * 60 * 1000);
+
+// 啟動時立即發送第一次請求
+sendPing();
+
+// 每5分鐘執行一次抓取任務
+setInterval(scrapeData, 5 * 60 * 1000);
 
 // 初次運行時立即執行一次
 scrapeData();
-
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
