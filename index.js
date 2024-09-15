@@ -261,7 +261,10 @@ app.post('/webhook', (req, res) => {
           const protocol = req.protocol;
           const host = req.get('host');
           const fileUrl = `${protocol}://${host}/files/${fileName}`;
+
           const adminMessage = `24小時內的記錄，可以在以下連結下載：\n${fileUrl}`;
+          console.log('24小時記錄準備寫入中…');
+          
           client.replyMessage(event.replyToken, {
             type: 'text',
             text: adminMessage
