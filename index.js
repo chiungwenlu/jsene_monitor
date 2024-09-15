@@ -3,6 +3,8 @@ const puppeteer = require("puppeteer");
 const axios = require('axios');
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 require("dotenv").config();
 
 const app = express();
@@ -188,39 +190,22 @@ app.post('/webhook', (req, res) => {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
         
-          let highThresholdRecords = ''; // 超過閾值的記錄
-          let hourlyRecords = {};         // 按每小時分組的記錄
-          
-          // 分組記錄，按每個小時來分
+          let allRecords = '';  // 用來存放全部記錄
+        
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
-            const hour = timestamp.split(' ')[1].split(':')[0]; // 獲取小時部分
         
-            // 初始化小時分組
-            if (!hourlyRecords[hour]) {
-              hourlyRecords[hour] = '';
-            }
-        
-            // 超過閾值的記錄
-            if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
-              highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
-            }
-            if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
-              highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
-            }
-        
-            // 將記錄添加到對應小時
-            hourlyRecords[hour] += `${timestamp} - `;
+            allRecords += `${timestamp} - `;
             if (record.station_184) {
-              hourlyRecords[hour] += `理虹(184): ${record.station_184}`;
+              allRecords += `理虹(184): ${record.station_184}`;
             }
             if (record.station_185) {
               if (record.station_184) {
-                hourlyRecords[hour] += ' / ';
+                allRecords += ' / ';
               }
-              hourlyRecords[hour] += `理虹(185): ${record.station_185}`;
+              allRecords += `理虹(185): ${record.station_185}`;
             }
-            hourlyRecords[hour] += '\n';
+            allRecords += '\n';
           });
         
           // 發送超過閾值的記錄
@@ -233,38 +218,30 @@ app.post('/webhook', (req, res) => {
               {
                 type: 'text',
                 text: `${highThresholdRecords}`
-              },
-              {
-                type: 'text',
-                text: `以下為24小時內的記錄`
               }
             ]);
           } else {
-            await client.replyMessage(event.replyToken, [
-              {
+            await client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄`
-              },
-              {
-                type: 'text',
-                text: `以下為24小時內的記錄：`
               }
-            ]);
+            );
           }
         
-          // 發送每小時的記錄，分別作為不同的訊息
-          const sendHourlyMessages = Object.keys(hourlyRecords).map(async (hour) => {
-            const message = {
-              type: 'text',
-              text: `${hourlyRecords[hour]}`
-            };
-            return client.pushMessage(event.source.userId, message);
+          // 設定文字檔路徑
+          const filePath = path.join(__dirname, 'public', 'records_for_24_hours.txt');
+
+          // 將所有記錄寫入到文字檔中
+          fs.writeFileSync(filePath, allRecords, 'utf8');
+
+          // 提供下載連結
+          const downloadUrl = `https://https://puppeteer-render-f857.onrender.com/public/records_for_24_hours.txt`;
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `24小時內的記錄已經整理成文字檔，可以在以下連結下載：\n${downloadUrl}`
           });
-        
-          // 確保所有訊息依次發送
-          await Promise.all(sendHourlyMessages);
-        
-          console.log('24小時記錄已發送');
+
+          console.log('24小時記錄已生成並提供下載連結');
         }               
       }
     } catch (err) {
