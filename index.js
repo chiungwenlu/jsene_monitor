@@ -225,7 +225,7 @@ app.post('/webhook', (req, res) => {
         
           // 發送超過閾值的記錄
           if (highThresholdRecords) {
-            await client.replyMessage(event.replyToken, 
+            await client.replyMessage(event.replyToken, [
               {
                 type: 'text',
                 text: `以下為超過 ${PM10_THRESHOLD} 的記錄：`
@@ -237,19 +237,19 @@ app.post('/webhook', (req, res) => {
               {
                 type: 'text',
                 text: `以下為24小時內的記錄`
-              },
-            );
-          } else {
-            await client.replyMessage(event.replyToken, 
-              {
-                type: 'text',
-                text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄：`
-              },
-              {
-                type: 'text',
-                text: `以下為24小時內的記錄`
               }
-            );
+            ]);
+          } else {
+            await client.replyMessage(event.replyToken, [
+              {
+                type: 'text',
+                text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄`
+              },
+              {
+                type: 'text',
+                text: `以下為24小時內的記錄：`
+              }
+            ]);
           }
         
           // 發送每小時的記錄，分別作為不同的訊息
