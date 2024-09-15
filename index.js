@@ -41,13 +41,12 @@ function getCurrentDateTime() {
   const localOffset = now.getTimezoneOffset(); // 當前時區的時差
   const taiwanTime = new Date(now.getTime() + (taiwanOffset - localOffset) * 60000); // 調整到台灣時區
   
-  const year = taiwanTime.getFullYear();
   const month = (taiwanTime.getMonth() + 1).toString().padStart(2, '0'); // 月份從 0 開始，所以要加 1
   const day = taiwanTime.getDate().toString().padStart(2, '0');
   const hours = taiwanTime.getHours().toString().padStart(2, '0');
   const minutes = taiwanTime.getMinutes().toString().padStart(2, '0');
   
-  return `${year}年${month}月${day}日${hours}時${minutes}分`;
+  return `${month}/${day} ${hours}:${minutes}`;
 }
 
 async function scrapeData() {
@@ -175,7 +174,7 @@ app.post('/webhook', (req, res) => {
         // 如果用戶發送 "24小時記錄" 或 "24"
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
-
+        
           // 查詢 Firebase 過去 24 小時的數據
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
           const snapshot = await recentRecordsRef.once('value');
@@ -184,57 +183,55 @@ app.post('/webhook', (req, res) => {
             const record = childSnapshot.val();
             records.push(record);
           });
-
-          // 如果沒有記錄
+        
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
-
-          // 生成 Flex Message 格式的訊息
-          let flexContents = records.reverse().map((record) => {
-            let station184Data = {
-              type: "text",
-              text: `理虹(184) 數據: ${record.station_184 || 'N/A'}`,
-              color: (record.station_184 && parseFloat(record.station_184) > PM10_THRESHOLD) ? "#FF0000" : "#000000"
-            };
-            
-            let station185Data = {
-              type: "text",
-              text: `理虹(185) 數據: ${record.station_185 || 'N/A'}`,
-              color: (record.station_185 && parseFloat(record.station_185) > PM10_THRESHOLD) ? "#FF0000" : "#000000"
-            };
-
-            return {
-              type: "box",
-              layout: "vertical",
-              contents: [
-                {
-                  type: "text",
-                  text: `${record.timestamp}`,
-                  weight: "bold",
-                  size: "md",
-                  margin: "sm"
-                },
-                {
-                  type: "box",
-                  layout: "horizontal",
-                  contents: [station184Data, { type: "text", text: " / " }, station185Data]
-                }
-              ],
-              margin: "md"
-            };
-          });
-
-          // 發送 Flex Message
-          return client.replyMessage(event.replyToken, {
-            type: "flex",
-            altText: "24小時記錄",
-            contents: {
-              type: "carousel",
-              contents: flexContents
+        
+          let highThresholdRecords = ''; // 超過閾值的記錄
+          let allRecords = '';           // 全部記錄
+        
+          records.reverse().forEach((record) => {
+            const timestamp = record.timestamp;
+        
+            // 超過閾值的記錄
+            if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
             }
+            if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
+            }
+        
+            // 全部記錄
+            allRecords += `${timestamp} - `;
+            if (record.station_184) {
+              allRecords += `理虹(184): ${record.station_184}`;
+            }
+            if (record.station_185) {
+              if (record.station_184) {
+                allRecords += ' / ';
+              }
+              allRecords += `理虹(185): ${record.station_185}`;
+            }
+            allRecords += '\n';
           });
-        }
+        
+          // 發送超過閾值的記錄
+          if (highThresholdRecords) {
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: `以下為超過 ${PM10_THRESHOLD} 的記錄：\n${highThresholdRecords}`
+            });
+          }
+        
+          // 發送全部記錄
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: `過去24小時內的記錄：\n${allRecords}`
+          });
+        
+          console.log('24小時記錄已發送');
+        }        
       }
     } catch (err) {
       console.error('處理訊息時出現錯誤:', err);
