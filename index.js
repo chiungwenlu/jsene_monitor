@@ -67,19 +67,19 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
+    // 廣播通知
+    if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
+      broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
+    }
+    if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
+      broadcastMessage(`警告：理虹站 185 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
+    }
+
   } catch (error) {
     console.error('抓取數據時出錯:', error);
   } finally {
     await browser.close(); // 確保瀏覽器正常關閉
   }
-}
-
-// 廣播通知
-if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
-  broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
-}
-if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
-  broadcastMessage(`警告：理虹站 185 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
 }
 
 // 廣播訊息給所有使用者
