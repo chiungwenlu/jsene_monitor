@@ -13,8 +13,8 @@ const PORT = 4000;
 // 解析 JSON 請求
 app.use(express.json());
 
-// 設置靜態文件服務
-app.use('/public', express.static(path.join(__dirname, 'public')));
+// 設定靜態文件目錄
+app.use(express.static(path.join(__dirname)));
 
 // 讀取 PM10 閾值
 const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
@@ -241,25 +241,30 @@ app.post('/webhook', (req, res) => {
             );
           }
         
-          // 設定文字檔路徑
-          const publicDir = path.join(__dirname, 'public');
-
-          // 如果 public 資料夾不存在，創建它
-          if (!fs.existsSync(publicDir)) {
-            fs.mkdirSync(publicDir);
+          // 檢查並創建files目錄
+          const filesDir = path.join(__dirname, 'files');
+          if (!fs.existsSync(filesDir)) {
+            fs.mkdirSync(filesDir);
           }
 
+          // 設置靜態文件路由
+          app.use('/files', express.static(filesDir));
+
           // 設定文字檔的路徑
-          const filePath = path.join(publicDir, 'records_for_24_hours.txt');
+          const fileName = 'records_for_24_hours.txt'
+          const filePath = path.join(filesDir, fileName);
 
           // 將所有記錄寫入到文字檔中
           fs.writeFileSync(filePath, allRecords, 'utf8');
 
           // 提供下載連結
-          const downloadUrl = `https://puppeteer-render-f857.onrender.com/public/records_for_24_hours.txt`;
-          await client.replyMessage(event.replyToken, {
+          const protocol = req.protocol;
+          const host = req.get('host');
+          const fileUrl = `${protocol}://${host}/files/${fileName}`;
+          const adminMessage = `24小時內的記錄，可以在以下連結下載：\n${fileUrl}`;
+          client.replyMessage(replyToken, {
             type: 'text',
-            text: `24小時內的記錄，可以在以下連結下載：\n${downloadUrl}`
+            text: adminMessage
           });
 
           console.log('24小時記錄已生成並提供下載連結');
