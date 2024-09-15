@@ -3,11 +3,6 @@ const puppeteer = require("puppeteer");
 const axios = require('axios');
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
-const moment = require('moment-timezone');
-
-// 設置台灣時區
-moment.tz.setDefault("Asia/Taipei");
-
 require("dotenv").config();
 
 const app = express();
@@ -24,14 +19,13 @@ const lineConfig = {
 
 const client = new line.Client(lineConfig);
 
-// 從環境變量讀取服務帳戶憑證
+// Firebase 初始化
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://env-monitor-7167f-default-rtdb.firebaseio.com/'
 });
-
 const db = admin.database();
 
 // 抓取 PM10 數據
@@ -73,7 +67,6 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
-    
     // 使用從 ENV 中讀取的 PM10 閾值來判斷是否廣播通知
     if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
       broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
@@ -102,8 +95,47 @@ async function broadcastMessage(message) {
   });
 }
 
-// 定期任務
-setInterval(scrapeData, 5 * 60 * 1000); // 每 5 分鐘執行一次抓取數據
+// 發送 ping 請求到 pinger-app
+function sendPing() {
+  axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
+    .then(response => {
+      console.log('來自 pinger-app 的回應:', response.data);
+    })
+    .catch(error => {
+      console.error('Error pinging pinger-app:', error);
+    });
+}
+
+// 每5分鐘發送一次請求
+setInterval(sendPing, 5 * 60 * 1000);
+
+// 每5分鐘執行一次抓取任務
+setInterval(scrapeData, 5 * 60 * 1000);
+
+// LINE Webhook 處理
+app.post('/webhook', line.middleware(lineConfig), (req, res) => {
+  const events = req.body.events;
+
+  events.forEach(async (event) => {
+    if (event.type === 'message' && event.message.type === 'text') {
+      const userId = event.source.userId;  // 取得發送訊息的使用者 ID
+      const profile = await client.getProfile(userId);  // 取得使用者資料
+      saveUserProfile(userId, profile.displayName);  // 保存 userId 和 userName 到 Firebase
+    }
+  });
+
+  res.status(200).end();
+});
+
+// 儲存使用者資料到 Firebase
+function saveUserProfile(userId, userName) {
+  db.ref(`users/${userId}`).update({
+    id: userId,
+    name: userName
+  }).catch(error => {
+    console.error('Error saving user profile:', error);
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
