@@ -22,11 +22,17 @@ const client = new line.Client({
 
 function getCurrentDateTime() {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 月份從 0 開始，所以要加 1
-  const day = now.getDate().toString().padStart(2, '0');
-  const hours = now.getHours().toString().padStart(2, '0');
-  const minutes = now.getMinutes().toString().padStart(2, '0');
+  
+  // 台灣時區的 UTC+8 時差
+  const taiwanOffset = 8 * 60; // 8 小時轉換為分鐘
+  const localOffset = now.getTimezoneOffset(); // 當前時區的時差
+  const taiwanTime = new Date(now.getTime() + (taiwanOffset - localOffset) * 60000); // 調整到台灣時區
+  
+  const year = taiwanTime.getFullYear();
+  const month = (taiwanTime.getMonth() + 1).toString().padStart(2, '0'); // 月份從 0 開始，所以要加 1
+  const day = taiwanTime.getDate().toString().padStart(2, '0');
+  const hours = taiwanTime.getHours().toString().padStart(2, '0');
+  const minutes = taiwanTime.getMinutes().toString().padStart(2, '0');
   
   return `${year}年${month}月${day}日${hours}時${minutes}分`;
 }
@@ -62,7 +68,7 @@ async function scrapeData() {
       page.waitForNavigation({ waitUntil: 'networkidle0' }) // 等待頁面完全載入
     ]);
 
-    // 4. 抓取 PM10 數據（第一個站點）
+    // 4-1. 抓取 PM10 數據（第一個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
     const iframeElement184 = await page.waitForSelector('iframe#ifs');
     const iframe184 = await iframeElement184.contentFrame();
@@ -72,7 +78,7 @@ async function scrapeData() {
     });
     console.log('理虹(184) PM10 數據:', pm10Data184);
 
-    // 抓取 PM10 數據（第二個站點）
+    // 4-2. 抓取 PM10 數據（第二個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
     const iframeElement185 = await page.$('iframe#ifs');
     const iframe185 = await iframeElement185.contentFrame();
@@ -82,7 +88,7 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
-    // 廣播通知
+    // 5. 廣播通知
     const currentTime = getCurrentDateTime();
     if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
       console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
@@ -96,7 +102,7 @@ async function scrapeData() {
   } catch (error) {
     console.error('抓取數據時出錯:', error);
   } finally {
-    await browser.close(); // 確保瀏覽器正常關閉
+    await browser.close(); // 瀏覽器關閉
   }
 }
 
