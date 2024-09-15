@@ -174,7 +174,7 @@ app.post('/webhook', (req, res) => {
         // 如果用戶發送 "24小時記錄" 或 "24"
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
-        
+          
           // 查詢 Firebase 過去 24 小時的數據
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
           const snapshot = await recentRecordsRef.once('value');
@@ -189,10 +189,17 @@ app.post('/webhook', (req, res) => {
           }
         
           let highThresholdRecords = ''; // 超過閾值的記錄
-          let allRecords = '';           // 全部記錄
-        
+          let hourlyRecords = {};         // 按每小時分組的記錄
+          
+          // 分組記錄，按每個小時來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
+            const hour = timestamp.split(' ')[1].split(':')[0]; // 獲取小時部分
+        
+            // 初始化小時分組
+            if (!hourlyRecords[hour]) {
+              hourlyRecords[hour] = '';
+            }
         
             // 超過閾值的記錄
             if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
@@ -202,36 +209,63 @@ app.post('/webhook', (req, res) => {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
             }
         
-            // 全部記錄
-            allRecords += `${timestamp} - `;
+            // 將記錄添加到對應小時
+            hourlyRecords[hour] += `${timestamp} - `;
             if (record.station_184) {
-              allRecords += `理虹(184): ${record.station_184}`;
+              hourlyRecords[hour] += `理虹(184): ${record.station_184}`;
             }
             if (record.station_185) {
               if (record.station_184) {
-                allRecords += ' / ';
+                hourlyRecords[hour] += ' / ';
               }
-              allRecords += `理虹(185): ${record.station_185}`;
+              hourlyRecords[hour] += `理虹(185): ${record.station_185}`;
             }
-            allRecords += '\n';
+            hourlyRecords[hour] += '\n';
           });
         
           // 發送超過閾值的記錄
           if (highThresholdRecords) {
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: `以下為超過 ${PM10_THRESHOLD} 的記錄：\n${highThresholdRecords}`
-            });
+            await client.replyMessage(event.replyToken, 
+              {
+                type: 'text',
+                text: `以下為超過 ${PM10_THRESHOLD} 的記錄：`
+              },
+              {
+                type: 'text',
+                text: `${highThresholdRecords}`
+              },
+              {
+                type: 'text',
+                text: `以下為24小時內的記錄`
+              },
+            );
+          } else {
+            await client.replyMessage(event.replyToken, 
+              {
+                type: 'text',
+                text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄：`
+              },
+              {
+                type: 'text',
+                text: `以下為24小時內的記錄`
+              }
+            );
           }
         
-          // 發送全部記錄
-          return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: `過去24小時內的記錄：\n${allRecords}`
+          // 發送每小時的記錄，分別作為不同的訊息
+          const sendHourlyMessages = Object.keys(hourlyRecords).map(async (hour) => {
+            const message = {
+              type: 'text',
+              text: `${hourlyRecords[hour]}`
+            };
+            return client.pushMessage(event.source.userId, message);
           });
         
+          // 確保所有訊息依次發送
+          await Promise.all(sendHourlyMessages);
+        
           console.log('24小時記錄已發送');
-        }        
+        }               
       }
     } catch (err) {
       console.error('處理訊息時出現錯誤:', err);
