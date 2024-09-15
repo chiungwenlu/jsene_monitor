@@ -3,8 +3,6 @@ const puppeteer = require("puppeteer");
 const axios = require('axios');
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
-const fs = require('fs');
-const path = require('path');
 require("dotenv").config();
 
 const app = express();
@@ -189,13 +187,20 @@ app.post('/webhook', (req, res) => {
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
-          
-          let highThresholdRecords = ''; // 超過閾值的記錄
-          let allRecords = '';  // 用來存放全部記錄
         
+          let highThresholdRecords = ''; // 超過閾值的記錄
+          let hourlyRecords = {};         // 按每小時分組的記錄
+          
+          // 分組記錄，按每個小時來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
-
+            const hour = timestamp.split(' ')[1].split(':')[0]; // 獲取小時部分
+        
+            // 初始化小時分組
+            if (!hourlyRecords[hour]) {
+              hourlyRecords[hour] = '';
+            }
+        
             // 超過閾值的記錄
             if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
@@ -204,18 +209,18 @@ app.post('/webhook', (req, res) => {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
             }
         
-            // 全部記錄
-            allRecords += `${timestamp} - `;
+            // 將記錄添加到對應小時
+            hourlyRecords[hour] += `${timestamp} - `;
             if (record.station_184) {
-              allRecords += `理虹(184): ${record.station_184}`;
+              hourlyRecords[hour] += `理虹(184): ${record.station_184}`;
             }
             if (record.station_185) {
               if (record.station_184) {
-                allRecords += ' / ';
+                hourlyRecords[hour] += ' / ';
               }
-              allRecords += `理虹(185): ${record.station_185}`;
+              hourlyRecords[hour] += `理虹(185): ${record.station_185}`;
             }
-            allRecords += '\n';
+            hourlyRecords[hour] += '\n';
           });
         
           // 發送超過閾值的記錄
@@ -228,59 +233,38 @@ app.post('/webhook', (req, res) => {
               {
                 type: 'text',
                 text: `${highThresholdRecords}`
+              },
+              {
+                type: 'text',
+                text: `以下為24小時內的記錄：`
               }
             ]);
           } else {
-            await client.replyMessage(event.replyToken, {
+            await client.replyMessage(event.replyToken, [
+              {
                 type: 'text',
                 text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄`
+              },
+              {
+                type: 'text',
+                text: `以下為24小時內的記錄：`
               }
-            );
+            ]);
           }
         
-          // 檢查並創建 files 目錄
-          const filesDir = path.join(__dirname, 'files');
-          if (!fs.existsSync(filesDir)) {
-            fs.mkdirSync(filesDir);
-            console.log(`已創建目錄: ${filesDir}`);
-          }
-
-          // 設置靜態文件路由
-          app.use('/files', express.static(filesDir));
-
-          // 設定文字檔的路徑
-          const fileName = 'records_for_24_hours.txt';
-          const filePath = path.join(filesDir, fileName);
-
-          try {
-            // 將所有記錄寫入到文字檔中
-            fs.writeFileSync(filePath, allRecords, 'utf8');
-            console.log('記錄已成功寫入文件: ', filePath);
-          
-            // 提供下載連結
-            const protocol = req.protocol;
-            const host = req.get('host');
-            const fileUrl = `${protocol}://${host}/files/${fileName}`;
-          
-            const adminMessage = `24小時內的記錄，可以在以下連結下載：\n${fileUrl}`;
-            
-            // 回應用戶下載連結
-            await client.replyMessage(event.replyToken, {
+          // 發送每小時的記錄，分別作為不同的訊息
+          const sendHourlyMessages = Object.keys(hourlyRecords).map(async (hour) => {
+            const message = {
               type: 'text',
-              text: adminMessage
-            });
-          
-            console.log('24小時記錄已生成並提供下載連結');
-          
-          } catch (error) {
-            console.error('寫入文件時出現錯誤:', error);
-          
-            // 回應錯誤訊息給用戶
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: '抱歉，儲存記錄時發生錯誤，請稍後再試。'
-            });
-          }
+              text: `${hourlyRecords[hour]}`
+            };
+            return client.pushMessage(event.source.userId, message);
+          });
+        
+          // 確保所有訊息依次發送
+          await Promise.all(sendHourlyMessages);
+        
+          console.log('24小時記錄已發送');
         }               
       }
     } catch (err) {
@@ -298,7 +282,6 @@ app.post('/webhook', (req, res) => {
 });
 
 // 設置 ping 路由接收 pinger-app 的請求
-// render.com免費使用若超過15分鐘沒有使用，會進入休眠。為了避免休眠，與pinger-app每5分鐘互相呼叫。
 app.post('/ping', (req, res) => {
   console.log('來自 pinger-app 的訊息:', req.body);
   res.json({ message: 'pong' });
