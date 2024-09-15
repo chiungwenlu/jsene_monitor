@@ -235,7 +235,7 @@ app.post('/webhook', (req, res) => {
           fs.writeFileSync(filePath, allRecords, 'utf8');
 
           // 提供下載連結
-          const downloadUrl = `https://https://puppeteer-render-f857.onrender.com/public/records_for_24_hours.txt`;
+          const downloadUrl = `https://puppeteer-render-f857.onrender.com/public/records_for_24_hours.txt`;
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: `24小時內的記錄已經整理成文字檔，可以在以下連結下載：\n${downloadUrl}`
