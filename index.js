@@ -8,7 +8,8 @@ const app = express();
 const PORT = 4000;
 
 // 讀取 PM10 閾值
-const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD) || 126;
+const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
+console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);
 
 // 設置LINE Messaging API客戶端
 const client = new line.Client({
@@ -69,9 +70,11 @@ async function scrapeData() {
 
     // 廣播通知
     if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
+      console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
       broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
     }
     if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
+      console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
       broadcastMessage(`警告：理虹站 185 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
     }
 
@@ -84,6 +87,7 @@ async function scrapeData() {
 
 // 廣播訊息給所有使用者
 async function broadcastMessage(message) {
+  console.log(`廣播發送中: ${message}`);
   client.broadcast({
     type: 'text',
     text: message
