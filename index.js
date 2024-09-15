@@ -15,11 +15,14 @@ app.use(express.json());
 const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
 console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);
 
-// 設置LINE Messaging API客戶端
-const client = new line.Client({
+// 設置LINE Messaging API客戶端的配置
+const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
-});
+  channelSecret: process.env.LINE_CHANNEL_SECRET
+};
+
+// 設置 LINE 客戶端
+const client = new line.Client(config);
 
 // 從環境變量讀取Firebase Admin SDK配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
