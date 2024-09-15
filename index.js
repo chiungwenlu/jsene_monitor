@@ -190,32 +190,50 @@ app.post('/webhook', (req, res) => {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
 
-          // 生成回應訊息
-          let replyText = '';
-          records.reverse().forEach((record) => {
-            replyText += `${record.timestamp} - `;
-
-            if (record.station_184) {
-              replyText += `理虹(184): ${record.station_184}`;
-            }
+          // 生成 Flex Message 格式的訊息
+          let flexContents = records.reverse().map((record) => {
+            let station184Data = {
+              type: "text",
+              text: `理虹(184) 數據: ${record.station_184 || 'N/A'}`,
+              color: (record.station_184 && parseFloat(record.station_184) > PM10_THRESHOLD) ? "#FF0000" : "#000000"
+            };
             
-            if (record.station_185) {
-              // 如果 184 的數據已經存在，則加上斜線分隔
-              if (record.station_184) {
-                replyText += ' / ';
-              }
-              replyText += `理虹(185): ${record.station_185}`;
-            }
+            let station185Data = {
+              type: "text",
+              text: `理虹(185) 數據: ${record.station_185 || 'N/A'}`,
+              color: (record.station_185 && parseFloat(record.station_185) > PM10_THRESHOLD) ? "#FF0000" : "#000000"
+            };
 
-            replyText += '\n';  // 每條記錄換行
+            return {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                {
+                  type: "text",
+                  text: `${record.timestamp}`,
+                  weight: "bold",
+                  size: "md",
+                  margin: "sm"
+                },
+                {
+                  type: "box",
+                  layout: "horizontal",
+                  contents: [station184Data, { type: "text", text: " / " }, station185Data]
+                }
+              ],
+              margin: "md"
+            };
           });
 
-          // 回應用戶
+          // 發送 Flex Message
           return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: replyText
+            type: "flex",
+            altText: "24小時記錄",
+            contents: {
+              type: "carousel",
+              contents: flexContents
+            }
           });
-          console.log('24小時記錄已發送');
         }
       }
     } catch (err) {
