@@ -168,6 +168,7 @@ async function handleEvent(event) {
     
     // 發送 "24小時記錄"
     if (userMessage === '24小時記錄' || userMessage === '24') {
+      console.log('準備列出24小時記錄');
       const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
       const snapshot = await recentRecordsRef.once('value');
       const records = [];
@@ -197,6 +198,7 @@ async function handleEvent(event) {
         type: 'text',
         text: replyText
       });
+      console.log('24小時記錄已輸出');
     }
   }
 }
