@@ -96,7 +96,7 @@ async function scrapeData() {
     }
     if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
       console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
-      broadcastMessage(`185堤外PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
+      broadcastMessage(`185堤上PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
     }
 
   } catch (error) {
