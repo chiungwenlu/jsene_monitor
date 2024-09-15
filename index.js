@@ -24,12 +24,14 @@ const lineConfig = {
 
 const client = new line.Client(lineConfig);
 
-// Firebase 初始化
-const serviceAccount = require('./firebaseServiceAccountKey.json');  // 載入您的 Firebase 憑證
+// 從環境變量讀取服務帳戶憑證
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://env-monitor-7167f-default-rtdb.firebaseio.com/'
 });
+
 const db = admin.database();
 
 // 抓取 PM10 數據
