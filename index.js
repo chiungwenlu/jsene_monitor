@@ -13,9 +13,6 @@ const PORT = 4000;
 // 解析 JSON 請求
 app.use(express.json());
 
-// 設定靜態文件目錄
-app.use(express.static(path.join(__dirname)));
-
 // 讀取 PM10 閾值
 const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
 console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);
@@ -241,36 +238,49 @@ app.post('/webhook', (req, res) => {
             );
           }
         
-          // 檢查並創建files目錄
+          // 檢查並創建 files 目錄
           const filesDir = path.join(__dirname, 'files');
           if (!fs.existsSync(filesDir)) {
             fs.mkdirSync(filesDir);
+            console.log(`已創建目錄: ${filesDir}`);
           }
 
           // 設置靜態文件路由
           app.use('/files', express.static(filesDir));
 
           // 設定文字檔的路徑
-          const fileName = 'records_for_24_hours.txt'
+          const fileName = 'records_for_24_hours.txt';
           const filePath = path.join(filesDir, fileName);
 
-          // 將所有記錄寫入到文字檔中
-          fs.writeFileSync(filePath, allRecords, 'utf8');
-
-          // 提供下載連結
-          const protocol = req.protocol;
-          const host = req.get('host');
-          const fileUrl = `${protocol}://${host}/files/${fileName}`;
-
-          const adminMessage = `24小時內的記錄，可以在以下連結下載：\n${fileUrl}`;
-          console.log('24小時記錄準備寫入中…');
+          try {
+            // 將所有記錄寫入到文字檔中
+            fs.writeFileSync(filePath, allRecords, 'utf8');
+            console.log('記錄已成功寫入文件: ', filePath);
           
-          client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: adminMessage
-          });
-
-          console.log('24小時記錄已生成並提供下載連結');
+            // 提供下載連結
+            const protocol = req.protocol;
+            const host = req.get('host');
+            const fileUrl = `${protocol}://${host}/files/${fileName}`;
+          
+            const adminMessage = `24小時內的記錄，可以在以下連結下載：\n${fileUrl}`;
+            
+            // 回應用戶下載連結
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: adminMessage
+            });
+          
+            console.log('24小時記錄已生成並提供下載連結');
+          
+          } catch (error) {
+            console.error('寫入文件時出現錯誤:', error);
+          
+            // 回應錯誤訊息給用戶
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: '抱歉，儲存記錄時發生錯誤，請稍後再試。'
+            });
+          }
         }               
       }
     } catch (err) {
