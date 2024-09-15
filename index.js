@@ -193,13 +193,21 @@ app.post('/webhook', (req, res) => {
           // 生成回應訊息
           let replyText = '';
           records.reverse().forEach((record) => {
-            replyText += `${record.timestamp}\n`;
+            replyText += `${record.timestamp} - `;
+
             if (record.station_184) {
-              replyText += `    理虹(184) PM10 數據: ${record.station_184}\n`;
+              replyText += `理虹(184): ${record.station_184}`;
             }
+            
             if (record.station_185) {
-              replyText += `    理虹(185) PM10 數據: ${record.station_185}\n`;
+              // 如果 184 的數據已經存在，則加上斜線分隔
+              if (record.station_184) {
+                replyText += ' / ';
+              }
+              replyText += `理虹(185): ${record.station_185}`;
             }
+
+            replyText += '\n';  // 每條記錄換行
           });
 
           // 回應用戶
