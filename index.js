@@ -2,6 +2,7 @@ const express = require("express");
 const puppeteer = require("puppeteer");
 const axios = require('axios');
 const line = require('@line/bot-sdk');
+const admin = require('firebase-admin');
 require("dotenv").config();
 
 const app = express();
@@ -19,6 +20,15 @@ const client = new line.Client({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 });
+
+// 從環境變量讀取Firebase Admin SDK配置
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: 'https://env-monitor-7167f-default-rtdb.firebaseio.com'
+});
+const db = admin.database();
+
 
 function getCurrentDateTime() {
   const now = new Date();
@@ -89,16 +99,38 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
-    // 5. 廣播通知
+    // 5. 儲存24小時記錄
     const currentTime = getCurrentDateTime();
-    if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
-      console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
-      broadcastMessage(`184堤外PM10濃度於${currentTime}達到 ${pm10Data184}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
-    }
-    if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
-      console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
-      broadcastMessage(`185堤上PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
-    }
+    if (pm10Data184 || pm10Data185) {
+      // 保存數據到 Firebase
+      const dataRef = db.ref('pm10_records').push();
+      await dataRef.set({
+        timestamp: currentTime,
+        station_184: pm10Data184 || null,
+        station_185: pm10Data185 || null
+      });
+      console.log('數據已保存到 Firebase:', { pm10Data184, pm10Data185 });
+
+      // 6. 廣播通知
+      if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
+        console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
+        broadcastMessage(`184堤外PM10濃度於${currentTime}達到 ${pm10Data184}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
+      }
+      if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
+        console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
+        broadcastMessage(`185堤上PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
+      }
+    };
+
+    // 自動刪除超過24小時的數據
+    const thresholdDate = new Date(Date.now() - 24 * 60 * 60 * 1000).getTime();
+    const oldRecordsRef = db.ref('pm10_records').orderByChild('timestamp').endAt(thresholdDate);
+    oldRecordsRef.once('value', (snapshot) => {
+      snapshot.forEach((childSnapshot) => {
+        childSnapshot.ref.remove();
+        console.log(`已刪除過期數據: ${childSnapshot.key}`);
+      });
+    });
 
   } catch (error) {
     console.error('抓取數據時出錯:', error);
@@ -121,6 +153,50 @@ async function broadcastMessage(message) {
     console.error('發送廣播訊息時發生錯誤:', err);
   });
 };
+
+// 過去 24 小時的數據
+app.post('/callback', line.middleware(config), (req, res) => {
+  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+});
+
+async function handleEvent(event) {
+  if (event.type === 'message' && event.message.type === 'text') {
+    const userMessage = event.message.text.trim();
+    
+    // 發送 "24小時記錄"
+    if (userMessage === '24小時記錄' || userMessage === '24') {
+      const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
+      const snapshot = await recentRecordsRef.once('value');
+      const records = [];
+      snapshot.forEach((childSnapshot) => {
+        const record = childSnapshot.val();
+        records.push(record);
+      });
+
+      if (records.length === 0) {
+        return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
+      }
+
+      // 生成回應訊息
+      let replyText = '';
+      records.reverse().forEach((record) => {
+        replyText += `${record.timestamp}\n`;
+        if (record.station_184) {
+          replyText += `    理虹(184) PM10 數據: ${record.station_184}\n`;
+        }
+        if (record.station_185) {
+          replyText += `    理虹(185) PM10 數據: ${record.station_185}\n`;
+        }
+      });
+
+      // 回應用戶
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: replyText
+      });
+    }
+  }
+}
 
 // 設置 ping 路由接收 pinger-app 的請求
 app.post('/ping', (req, res) => {
