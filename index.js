@@ -13,6 +13,9 @@ const PORT = 4000;
 // 解析 JSON 請求
 app.use(express.json());
 
+// 設置靜態文件服務
+app.use('/public', express.static(path.join(__dirname, 'public')));
+
 // 讀取 PM10 閾值
 const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
 console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);
@@ -277,6 +280,7 @@ app.post('/webhook', (req, res) => {
 });
 
 // 設置 ping 路由接收 pinger-app 的請求
+// render.com免費使用若超過15分鐘沒有使用，會進入休眠。為了避免休眠，與pinger-app每5分鐘互相呼叫。
 app.post('/ping', (req, res) => {
   console.log('來自 pinger-app 的訊息:', req.body);
   res.json({ message: 'pong' });
