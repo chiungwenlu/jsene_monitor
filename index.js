@@ -189,12 +189,22 @@ app.post('/webhook', (req, res) => {
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
-        
+          
+          let highThresholdRecords = ''; // 超過閾值的記錄
           let allRecords = '';  // 用來存放全部記錄
         
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
+
+            // 超過閾值的記錄
+            if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
+            }
+            if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
+            }
         
+            // 全部記錄
             allRecords += `${timestamp} - `;
             if (record.station_184) {
               allRecords += `理虹(184): ${record.station_184}`;
@@ -238,7 +248,7 @@ app.post('/webhook', (req, res) => {
           const downloadUrl = `https://puppeteer-render-f857.onrender.com/public/records_for_24_hours.txt`;
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: `24小時內的記錄已經整理成文字檔，可以在以下連結下載：\n${downloadUrl}`
+            text: `24小時內的記錄，可以在以下連結下載：\n${downloadUrl}`
           });
 
           console.log('24小時記錄已生成並提供下載連結');
