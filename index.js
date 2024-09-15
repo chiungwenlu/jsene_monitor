@@ -239,7 +239,15 @@ app.post('/webhook', (req, res) => {
           }
         
           // 設定文字檔路徑
-          const filePath = path.join(__dirname, 'public', 'records_for_24_hours.txt');
+          const publicDir = path.join(__dirname, 'public');
+
+          // 如果 public 資料夾不存在，創建它
+          if (!fs.existsSync(publicDir)) {
+            fs.mkdirSync(publicDir);
+          }
+
+          // 設定文字檔的路徑
+          const filePath = path.join(publicDir, 'records_for_24_hours.txt');
 
           // 將所有記錄寫入到文字檔中
           fs.writeFileSync(filePath, allRecords, 'utf8');
