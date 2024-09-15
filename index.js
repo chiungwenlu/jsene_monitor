@@ -73,6 +73,7 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
+    
     // 使用從 ENV 中讀取的 PM10 閾值來判斷是否廣播通知
     if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
       broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
