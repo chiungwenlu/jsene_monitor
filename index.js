@@ -158,69 +158,71 @@ async function broadcastMessage(message) {
 };
 
 // 過去 24 小時的數據
-// 設置 LINE Webhook 路由
-app.post('/webhook', line.middleware(config), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent))
-    .then((result) => res.json(result))
-    .catch((err) => {
-      console.error('處理事件時發生錯誤:', err);
-      res.status(500).end();
-    });
-});
+app.post('/webhook', (req, res) => {
+  const events = req.body.events;
 
-// 處理來自 LINE 的事件
-async function handleEvent(event) {
-  try {
-    if (event.type === 'message' && event.message.type === 'text') {
-      const userMessage = event.message.text.trim();
-      
-      // 如果用戶發送 "24小時記錄" 或 "24"
-      if (userMessage === '24小時記錄' || userMessage === '24') {
-        console.log('準備列出24小時記錄');
-        
-        // 查詢 Firebase 過去 24 小時的數據
-        const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
-        const snapshot = await recentRecordsRef.once('value');
-        const records = [];
-        snapshot.forEach((childSnapshot) => {
-          const record = childSnapshot.val();
-          records.push(record);
-        });
-
-        // 如果沒有記錄
-        if (records.length === 0) {
-          return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
-        }
-
-        // 生成回應訊息
-        let replyText = '';
-        records.reverse().forEach((record) => {
-          replyText += `${record.timestamp}\n`;
-          if (record.station_184) {
-            replyText += `    理虹(184) PM10 數據: ${record.station_184}\n`;
-          }
-          if (record.station_185) {
-            replyText += `    理虹(185) PM10 數據: ${record.station_185}\n`;
-          }
-        });
-
-        // 回應用戶
-        return client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: replyText
-        });
-        console.log('24小時記錄已發送');
-      }
-    }
-  } catch (err) {
-    console.error('處理訊息時出現錯誤:', err);
-    // 回應錯誤訊息給用戶
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '抱歉，發生了一些錯誤，請稍後再試。'
-    });
+  // 確認有事件發生
+  if (!events || events.length === 0) {
+    return res.status(200).send("No events to process.");
   }
-}
+
+  // 處理所有事件
+  events.forEach(async (event) => {
+    try {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userMessage = event.message.text.trim();
+
+        // 如果用戶發送 "24小時記錄" 或 "24"
+        if (userMessage === '24小時記錄' || userMessage === '24') {
+          console.log('準備列出24小時記錄');
+
+          // 查詢 Firebase 過去 24 小時的數據
+          const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
+          const snapshot = await recentRecordsRef.once('value');
+          const records = [];
+          snapshot.forEach((childSnapshot) => {
+            const record = childSnapshot.val();
+            records.push(record);
+          });
+
+          // 如果沒有記錄
+          if (records.length === 0) {
+            return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
+          }
+
+          // 生成回應訊息
+          let replyText = '';
+          records.reverse().forEach((record) => {
+            replyText += `${record.timestamp}\n`;
+            if (record.station_184) {
+              replyText += `    理虹(184) PM10 數據: ${record.station_184}\n`;
+            }
+            if (record.station_185) {
+              replyText += `    理虹(185) PM10 數據: ${record.station_185}\n`;
+            }
+          });
+
+          // 回應用戶
+          return client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: replyText
+          });
+          console.log('24小時記錄已發送');
+        }
+      }
+    } catch (err) {
+      console.error('處理訊息時出現錯誤:', err);
+      // 回應錯誤訊息給用戶
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '抱歉，發生了一些錯誤，請稍後再試。'
+      });
+    }
+  });
+
+  // 回應 LINE 的伺服器，告知請求已收到
+  res.status(200).end();
+});
 
 // 設置 ping 路由接收 pinger-app 的請求
 app.post('/ping', (req, res) => {
