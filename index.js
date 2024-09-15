@@ -59,8 +59,9 @@ async function scrapeData() {
     await page.goto('https://www.jsene.com/juno/Login.aspx');
 
     // 2. 填入帳號和密碼
-    await page.type('#T_Account', 'ExcelTek');  // 帳號
-    await page.type('#T_Password', 'ExcelTek');  // 密碼
+    await page.type('#T_Account', process.env.ACCOUNT_NAME);  // 帳號
+    await page.type('#T_Password', process.env.ACCOUNT_PASSWORD);  // 密碼
+
 
     // 3. 點擊登入按鈕並等待導航完成
     await Promise.all([
@@ -70,9 +71,9 @@ async function scrapeData() {
 
     // 4-1. 抓取 PM10 數據（第一個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
-    const iframeElement184 = await page.waitForSelector('iframe#ifs');
-    const iframe184 = await iframeElement184.contentFrame();
-    const pm10Data184 = await iframe184.evaluate(() => {
+      const iframeElement184 = await page.waitForSelector('iframe#ifs');
+      const iframe184 = await iframeElement184.contentFrame();
+      const pm10Data184 = await iframe184.evaluate(() => {
       const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
       return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
@@ -80,9 +81,9 @@ async function scrapeData() {
 
     // 4-2. 抓取 PM10 數據（第二個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
-    const iframeElement185 = await page.$('iframe#ifs');
-    const iframe185 = await iframeElement185.contentFrame();
-    const pm10Data185 = await iframe185.evaluate(() => {
+      const iframeElement185 = await page.$('iframe#ifs');
+      const iframe185 = await iframeElement185.contentFrame();
+      const pm10Data185 = await iframe185.evaluate(() => {
       const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
       return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
@@ -127,7 +128,7 @@ app.post('/ping', (req, res) => {
   res.json({ message: 'pong' });
 });
 
-// 發送 ping 請求到 pinger-app
+// 每5分鐘發送一次請求給pinger-app
 function sendPing() {
   axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
     .then(response => {
@@ -137,12 +138,21 @@ function sendPing() {
       console.error('Error pinging pinger-app:', error);
     });
 }
-
-// 每5分鐘發送一次請求
 setInterval(sendPing, 5 * 60 * 1000);
 
-// 每5分鐘執行一次抓取任務
-setInterval(scrapeData, 5 * 60 * 1000);
+// 每5分鐘( 0, 5, 10, 15, ... 55)執行一次抓取任務
+function scheduleTaskAtIntervals(task, intervalMinutes) {
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const nextMinute = Math.ceil(minutes / intervalMinutes) * intervalMinutes;
+  const delay = ((nextMinute - minutes) * 60 - now.getSeconds()) * 1000;
+
+  setTimeout(() => {
+    task();
+    setInterval(task, intervalMinutes * 60 * 1000); 
+  }, delay);
+}
+scheduleTaskAtIntervals(scrapeData, 5);
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
