@@ -7,6 +7,9 @@ require("dotenv").config();
 const app = express();
 const PORT = 4000;
 
+// 解析 JSON 請求
+app.use(express.json());
+
 // 讀取 PM10 閾值
 const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
 console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);
@@ -16,6 +19,17 @@ const client = new line.Client({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
   channelSecret: process.env.LINE_CHANNEL_SECRET,
 });
+
+function getCurrentDateTime() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = (now.getMonth() + 1).toString().padStart(2, '0'); // 月份從 0 開始，所以要加 1
+  const day = now.getDate().toString().padStart(2, '0');
+  const hours = now.getHours().toString().padStart(2, '0');
+  const minutes = now.getMinutes().toString().padStart(2, '0');
+  
+  return `${year}年${month}月${day}日${hours}時${minutes}分`;
+}
 
 async function scrapeData() {
   const browser = await puppeteer.launch({
@@ -69,13 +83,14 @@ async function scrapeData() {
     console.log('理虹(185) PM10 數據:', pm10Data185);
 
     // 廣播通知
+    const currentTime = getCurrentDateTime();
     if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
       console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
-      broadcastMessage(`警告：理虹站 184 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
+      broadcastMessage(`184堤外PM10濃度於${currentTime}達到 ${pm10Data184}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
     }
     if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
       console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
-      broadcastMessage(`警告：理虹站 185 PM10 數據達到 ${pm10Data184}，超過安全閾值 ${PM10_THRESHOLD}。`);
+      broadcastMessage(`185堤外PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
     }
 
   } catch (error) {
