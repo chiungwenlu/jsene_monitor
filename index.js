@@ -102,25 +102,16 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', result.station_185);
 
-    // 保存數據到 Firebase
+    // 如果是自動抓取，保存到 Firebase
     if (result.station_184 || result.station_185) {
       const currentTime = getCurrentDateTime();
-
-      // 查詢是否已有相同 timestamp 的記錄
-      const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
-      const snapshot = await existingRecordRef.once('value');
-      // 如果沒有相同的 timestamp，則保存數據
-      if (!snapshot.exists()) {
-        const dataRef = db.ref('pm10_records').push();
-        await dataRef.set({
-          timestamp: currentTime,
-          station_184: result.station_1844 || null,
-          station_185: result.station_185 || null
-        });
-        console.log('數據已保存到 Firebase(位置E):', result);
-      } else {
-        console.log('已存在相同時間的數據，不進行保存。');
-      }
+      const dataRef = db.ref('pm10_records').push();
+      await dataRef.set({
+        timestamp: currentTime,
+        station_184: result.station_184 || null,
+        station_185: result.station_185 || null
+      });
+      console.log('數據已保存到 Firebase:', result);
     }
 
   } catch (error) {
@@ -283,25 +274,16 @@ app.post('/webhook', (req, res) => {
             messageText += '理虹(185): 無法取得數據\n';
           }
 
-          // 保存數據到 Firebase
+          // 保存即時數據到 Firebase
           if (currentData.station_184 || currentData.station_185) {
             const currentTime = getCurrentDateTime();
-
-            // 查詢是否已有相同 timestamp 的記錄
-            const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
-            const snapshot = await existingRecordRef.once('value');
-            // 如果沒有相同的 timestamp，則保存數據
-            if (!snapshot.exists()) {
-              const dataRef = db.ref('pm10_records').push();
-              await dataRef.set({
-                timestamp: currentTime,
-                station_184: currentData.station_184 || null,
-                station_185: currentData.station_185 || null
-              });
-              console.log('數據已保存到 Firebase(位置E):', currentData);
-            } else {
-              console.log('已存在相同時間的數據，不進行保存。');
-            }
+            const dataRef = db.ref('pm10_records').push();
+            await dataRef.set({
+              timestamp: currentTime,
+              station_184: currentData.station_184 || null,
+              station_185: currentData.station_185 || null
+            });
+            console.log('即時查詢數據已保存到 Firebase:', currentData);
           }
 
           // 回覆訊息給用戶
@@ -312,8 +294,7 @@ app.post('/webhook', (req, res) => {
 
           // 檢查是否超過閾值，並發送警告及廣播
           if (currentData.station_184 && parseInt(currentData.station_184) >= PM10_THRESHOLD) {
-            const currentTime = getCurrentDateTime();
-            const alertMessage184 = `理虹(184)堤外 PM10 濃度於${currentTime}達到${currentData.station_184} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
+            const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${currentData.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage184
@@ -325,8 +306,7 @@ app.post('/webhook', (req, res) => {
           }
 
           if (currentData.station_185 && parseInt(currentData.station_185) >= PM10_THRESHOLD) {
-            const currentTime = getCurrentDateTime();
-            const alertMessage185 = `理虹(185)堤上 PM10 濃度於${currentTime}達到${currentData.station_185} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
+            const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${currentData.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage185
