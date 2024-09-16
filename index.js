@@ -303,12 +303,14 @@ app.post('/webhook', (req, res) => {
           }
 
           console.log('debug 1');
+          console.log(result.station_184, result.station_185)
           // 保存即時數據到 Firebase
           if (result.station_184 || result.station_185) {
             const currentTime = getCurrentDateTime();
-          
+            console.log('debug 1A')
             // 查詢是否已有相同 timestamp 的記錄
             const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
+            console.log('debug 1B')
             const snapshot = await existingRecordRef.once('value');
             console.log('debug 2');
             // 如果沒有相同的 timestamp，則保存數據
