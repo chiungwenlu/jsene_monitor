@@ -49,6 +49,7 @@ function getCurrentDateTime() {
   return `${month}/${day} ${hours}:${minutes}`;
 }
 
+// 設定puppeteer無頭模式，抓取網站資料用
 async function scrapeData() {
   const browser = await puppeteer.launch({
     args: [
@@ -112,6 +113,23 @@ async function scrapeData() {
         station_185: result.station_185 || null
       });
       console.log('數據已保存到 Firebase:', result);
+    }
+
+    // 檢查是否超過閾值，並發送警告及廣播
+    if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
+      const currentTime = getCurrentDateTime();
+      const alertMessage184 = `理虹(184)堤外 PM10 濃度於${currentTime}達到${currentData.station_184} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
+      console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);               ``
+      // 廣播警告訊息
+      await broadcastMessage(alertMessage184);
+    }
+
+    if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
+      const currentTime = getCurrentDateTime();
+      const alertMessage185 = `理虹(185)堤上 PM10 濃度於${currentTime}達到${currentData.station_185} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
+      console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
+      // 廣播警告訊息
+      await broadcastMessage(alertMessage185);
     }
 
   } catch (error) {
@@ -252,11 +270,17 @@ app.post('/webhook', (req, res) => {
         if (userMessage === '即時查詢') {
           console.log('執行即時查詢');
 
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: '查詢中，請稍待...'
+          });
+
           // 調用 scrapeData 函數進行即時查詢
           const currentData = await scrapeData();
 
           // 構建查詢結果的回覆訊息
-          let messageText = '即時 PM10 數據：\n';
+          const currentTime = getCurrentDateTime();
+          let messageText = `${currentTime} PM10 數據：\n`;
           if (currentData.station_184) {
             messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
           } else {
