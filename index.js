@@ -103,7 +103,7 @@ async function scrapeData() {
     console.log('理虹(185) PM10 數據:', result.station_185);
 
     // 保存數據到 Firebase
-    if (currentData.station_184 || currentData.station_185) {
+    if (result.station_184 || result.station_185) {
       const currentTime = getCurrentDateTime();
 
       // 查詢是否已有相同 timestamp 的記錄
@@ -114,10 +114,10 @@ async function scrapeData() {
         const dataRef = db.ref('pm10_records').push();
         await dataRef.set({
           timestamp: currentTime,
-          station_184: currentData.station_184 || null,
-          station_185: currentData.station_185 || null
+          station_184: result.station_1844 || null,
+          station_185: result.station_185 || null
         });
-        console.log('數據已保存到 Firebase(位置E):', currentData);
+        console.log('數據已保存到 Firebase(位置E):', result);
       } else {
         console.log('已存在相同時間的數據，不進行保存。');
       }
