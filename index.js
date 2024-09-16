@@ -288,7 +288,8 @@ app.post('/webhook', (req, res) => {
 
           // 檢查是否超過閾值，並發送警告及廣播
           if (currentData.station_184 && parseInt(currentData.station_184) >= PM10_THRESHOLD) {
-            const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${currentData.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+            const currentTime = getCurrentDateTime();
+            const alertMessage184 = `理虹(184)堤外 PM10 濃度於${currentTime}達到${currentData.station_184} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage184
@@ -300,7 +301,8 @@ app.post('/webhook', (req, res) => {
           }
 
           if (currentData.station_185 && parseInt(currentData.station_185) >= PM10_THRESHOLD) {
-            const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${currentData.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+            const currentTime = getCurrentDateTime();
+            const alertMessage185 = `理虹(185)堤上 PM10 濃度於${currentTime}達到${currentData.station_185} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage185
