@@ -328,6 +328,7 @@ app.post('/webhook', (req, res) => {
             }
           }
           console.log('debug 3');
+          console.log(messageText);
           
           // 回覆訊息給用戶
           await client.replyMessage(event.replyToken, {
