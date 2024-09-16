@@ -49,7 +49,6 @@ function getCurrentDateTime() {
   return `${month}/${day} ${hours}:${minutes}`;
 }
 
-// 設定puppeteer無頭模式，抓取網站資料用
 async function scrapeData() {
   const browser = await puppeteer.launch({
     args: [
@@ -103,47 +102,29 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', result.station_185);
 
-    // 如果是自動抓取，保存到 Firebase
-    if (result.station_184 || result.station_185) {
+    // 保存數據到 Firebase
+    if (currentData.station_184 || currentData.station_185) {
       const currentTime = getCurrentDateTime();
-    
+
       // 查詢是否已有相同 timestamp 的記錄
       const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
       const snapshot = await existingRecordRef.once('value');
-    
       // 如果沒有相同的 timestamp，則保存數據
       if (!snapshot.exists()) {
         const dataRef = db.ref('pm10_records').push();
         await dataRef.set({
           timestamp: currentTime,
-          station_184: result.station_184 || null,
-          station_185: result.station_185 || null
+          station_184: currentData.station_184 || null,
+          station_185: currentData.station_185 || null
         });
-        console.log('數據已保存到 Firebase:', result);
+        console.log('數據已保存到 Firebase(位置E):', currentData);
       } else {
         console.log('已存在相同時間的數據，不進行保存。');
       }
     }
 
-    // 檢查是否超過閾值，並發送警告及廣播
-    if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
-      const currentTime = getCurrentDateTime();
-      const alertMessage184 = `理虹(184)堤外 PM10 濃度於${currentTime}達到${currentData.station_184} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
-      console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);               ``
-      // 廣播警告訊息
-      await broadcastMessage(alertMessage184);
-    }
-
-    if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
-      const currentTime = getCurrentDateTime();
-      const alertMessage185 = `理虹(185)堤上 PM10 濃度於${currentTime}達到${currentData.station_185} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
-      console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-      // 廣播警告訊息
-      await broadcastMessage(alertMessage185);
-    }
-
   } catch (error) {
-    console.error('抓取數據時出錯(位置B):', error);
+    console.error('抓取數據時出錯:', error);
   } finally {
     await browser.close();
     return result;  // 返回抓取到的數據
@@ -161,7 +142,7 @@ async function broadcastMessage(message) {
     console.log('廣播訊息已成功發送');
   })
   .catch((err) => {
-    console.error('發送廣播訊息時發生錯誤(位置C):', err);
+    console.error('發送廣播訊息時發生錯誤:', err);
   });
 };
 
@@ -280,17 +261,17 @@ app.post('/webhook', (req, res) => {
         if (userMessage === '即時查詢') {
           console.log('執行即時查詢');
 
+          // 先回覆用戶查詢中的訊息
           await client.replyMessage(event.replyToken, {
             type: 'text',
-            text: '查詢中，請稍待...'
+            text: '查詢中，請稍待…'
           });
 
           // 調用 scrapeData 函數進行即時查詢
           const currentData = await scrapeData();
 
           // 構建查詢結果的回覆訊息
-          const currentTime = getCurrentDateTime();
-          let messageText = `${currentTime} PM10 數據：\n`;
+          let messageText = '即時 PM10 數據：\n';
           if (currentData.station_184) {
             messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
           } else {
@@ -302,18 +283,13 @@ app.post('/webhook', (req, res) => {
             messageText += '理虹(185): 無法取得數據\n';
           }
 
-          console.log('debug 1');
-          console.log(currentData.station_184, currentData.station_185);
-  
-          // 保存即時數據到 Firebase
+          // 保存數據到 Firebase
           if (currentData.station_184 || currentData.station_185) {
             const currentTime = getCurrentDateTime();
-            console.log('debug 1A');
+
             // 查詢是否已有相同 timestamp 的記錄
             const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
-            console.log('debug 1B');
             const snapshot = await existingRecordRef.once('value');
-            console.log('debug 2');
             // 如果沒有相同的 timestamp，則保存數據
             if (!snapshot.exists()) {
               const dataRef = db.ref('pm10_records').push();
@@ -322,44 +298,41 @@ app.post('/webhook', (req, res) => {
                 station_184: currentData.station_184 || null,
                 station_185: currentData.station_185 || null
               });
-              console.log('即時數據已保存到 Firebase(位置E):', currentData);
+              console.log('數據已保存到 Firebase(位置E):', currentData);
             } else {
               console.log('已存在相同時間的數據，不進行保存。');
             }
           }
-          console.log('debug 3');
-          console.log(messageText);
-          
+
           // 回覆訊息給用戶
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: messageText
           });
-          console.log('debug 4');
-          
+
           // 檢查是否超過閾值，並發送警告及廣播
           if (currentData.station_184 && parseInt(currentData.station_184) >= PM10_THRESHOLD) {
+            const currentTime = getCurrentDateTime();
             const alertMessage184 = `理虹(184)堤外 PM10 濃度於${currentTime}達到${currentData.station_184} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
-            console.log('debug 5');
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage184
             });
             console.log('即時查詢超過閾值 (184) 發送警告:', alertMessage184);
-            console.log('debug 6');
+            
             // 廣播警告訊息
             await broadcastMessage(alertMessage184);
           }
-          console.log('debug 7');
+
           if (currentData.station_185 && parseInt(currentData.station_185) >= PM10_THRESHOLD) {
+            const currentTime = getCurrentDateTime();
             const alertMessage185 = `理虹(185)堤上 PM10 濃度於${currentTime}達到${currentData.station_185} μg/m³≧${PM10_THRESHOLD} μg/m³，請啟動水線抑制揚塵`;
-            console.log('debug 8');
             await client.replyMessage(event.replyToken, {
               type: 'text',
               text: alertMessage185
             });
             console.log('即時查詢超過閾值 (185) 發送警告:', alertMessage185);
-            console.log('debug 9');
+            
             // 廣播警告訊息
             await broadcastMessage(alertMessage185);
           }
@@ -369,7 +342,7 @@ app.post('/webhook', (req, res) => {
 
       }
     } catch (err) {
-      console.error('處理訊息時出現錯誤(位置A):', err);
+      console.error('處理訊息時出現錯誤:', err);
       // 回應錯誤訊息給用戶
       return client.replyMessage(event.replyToken, {
         type: 'text',
@@ -395,7 +368,7 @@ function sendPing() {
       console.log('來自 pinger-app 的回應:', response.data);
     })
     .catch(error => {
-      console.error('Error pinging pinger-app(位置D):', error);
+      console.error('Error pinging pinger-app:', error);
     });
 }
 setInterval(sendPing, 5 * 60 * 1000);
