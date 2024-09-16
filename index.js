@@ -106,13 +106,23 @@ async function scrapeData() {
     // 如果是自動抓取，保存到 Firebase
     if (result.station_184 || result.station_185) {
       const currentTime = getCurrentDateTime();
-      const dataRef = db.ref('pm10_records').push();
-      await dataRef.set({
-        timestamp: currentTime,
-        station_184: result.station_184 || null,
-        station_185: result.station_185 || null
-      });
-      console.log('數據已保存到 Firebase:', result);
+    
+      // 查詢是否已有相同 timestamp 的記錄
+      const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
+      const snapshot = await existingRecordRef.once('value');
+    
+      // 如果沒有相同的 timestamp，則保存數據
+      if (!snapshot.exists()) {
+        const dataRef = db.ref('pm10_records').push();
+        await dataRef.set({
+          timestamp: currentTime,
+          station_184: result.station_184 || null,
+          station_185: result.station_185 || null
+        });
+        console.log('數據已保存到 Firebase:', result);
+      } else {
+        console.log('已存在相同時間的數據，不進行保存。');
+      }
     }
 
     // 檢查是否超過閾值，並發送警告及廣播
@@ -293,15 +303,25 @@ app.post('/webhook', (req, res) => {
           }
 
           // 保存即時數據到 Firebase
-          if (currentData.station_184 || currentData.station_185) {
+          if (result.station_184 || result.station_185) {
             const currentTime = getCurrentDateTime();
-            const dataRef = db.ref('pm10_records').push();
-            await dataRef.set({
-              timestamp: currentTime,
-              station_184: currentData.station_184 || null,
-              station_185: currentData.station_185 || null
-            });
-            console.log('即時查詢數據已保存到 Firebase:', currentData);
+          
+            // 查詢是否已有相同 timestamp 的記錄
+            const existingRecordRef = db.ref('pm10_records').orderByChild('timestamp').equalTo(currentTime);
+            const snapshot = await existingRecordRef.once('value');
+          
+            // 如果沒有相同的 timestamp，則保存數據
+            if (!snapshot.exists()) {
+              const dataRef = db.ref('pm10_records').push();
+              await dataRef.set({
+                timestamp: currentTime,
+                station_184: result.station_184 || null,
+                station_185: result.station_185 || null
+              });
+              console.log('即時數據已保存到 Firebase:', result);
+            } else {
+              console.log('已存在相同時間的數據，不進行保存。');
+            }
           }
 
           // 回覆訊息給用戶
