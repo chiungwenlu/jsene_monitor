@@ -287,6 +287,8 @@ app.post('/webhook', (req, res) => {
           }
 
           // 回覆訊息給用戶
+          const currentTime = getCurrentDateTime();
+          messageText = currentTime + messageText;
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: messageText
