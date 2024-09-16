@@ -63,6 +63,8 @@ async function scrapeData() {
         : puppeteer.executablePath(),
   });
 
+  let result = { station_184: null, station_185: null };
+
   try {
     const page = await browser.newPage();
     console.log('Target page loaded');
@@ -74,7 +76,6 @@ async function scrapeData() {
     await page.type('#T_Account', process.env.ACCOUNT_NAME);  // 帳號
     await page.type('#T_Password', process.env.ACCOUNT_PASSWORD);  // 密碼
 
-
     // 3. 點擊登入按鈕並等待導航完成
     await Promise.all([
       page.click('#Btn_Login'),
@@ -83,61 +84,41 @@ async function scrapeData() {
 
     // 4-1. 抓取 PM10 數據（第一個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
-      const iframeElement184 = await page.waitForSelector('iframe#ifs');
-      const iframe184 = await iframeElement184.contentFrame();
-      const pm10Data184 = await iframe184.evaluate(() => {
+    const iframeElement184 = await page.waitForSelector('iframe#ifs');
+    const iframe184 = await iframeElement184.contentFrame();
+    result.station_184 = await iframe184.evaluate(() => {
       const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
       return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
-    console.log('理虹(184) PM10 數據:', pm10Data184);
+    console.log('理虹(184) PM10 數據:', result.station_184);
 
     // 4-2. 抓取 PM10 數據（第二個站點）
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
-      const iframeElement185 = await page.$('iframe#ifs');
-      const iframe185 = await iframeElement185.contentFrame();
-      const pm10Data185 = await iframe185.evaluate(() => {
+    const iframeElement185 = await page.$('iframe#ifs');
+    const iframe185 = await iframeElement185.contentFrame();
+    result.station_185 = await iframe185.evaluate(() => {
       const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
       return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
     });
-    console.log('理虹(185) PM10 數據:', pm10Data185);
+    console.log('理虹(185) PM10 數據:', result.station_185);
 
-    // 5. 儲存24小時記錄
-    const currentTime = getCurrentDateTime();
-    if (pm10Data184 || pm10Data185) {
-      // 保存數據到 Firebase
+    // 如果是自動抓取，保存到 Firebase
+    if (result.station_184 || result.station_185) {
+      const currentTime = getCurrentDateTime();
       const dataRef = db.ref('pm10_records').push();
       await dataRef.set({
         timestamp: currentTime,
-        station_184: pm10Data184 || null,
-        station_185: pm10Data185 || null
+        station_184: result.station_184 || null,
+        station_185: result.station_185 || null
       });
-      console.log('數據已保存到 Firebase:', { pm10Data184, pm10Data185 });
-
-      // 6. 廣播通知
-      if (parseInt(pm10Data184) >= PM10_THRESHOLD) {
-        console.log('發送廣播理虹(184) PM10 數據:', pm10Data184);
-        broadcastMessage(`184堤外PM10濃度於${currentTime}達到 ${pm10Data184}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
-      }
-      if (parseInt(pm10Data185) >= PM10_THRESHOLD) {
-        console.log('發送廣播理虹(185) PM10 數據:', pm10Data185);
-        broadcastMessage(`185堤上PM10濃度於${currentTime}達到 ${pm10Data185}≧${PM10_THRESHOLD} μg/m3，請啟動水線抑制揚塵`);
-      }
-    };
-
-    // 自動刪除超過24小時的數據
-    const thresholdDate = new Date(Date.now() - 24 * 60 * 60 * 1000).getTime();
-    const oldRecordsRef = db.ref('pm10_records').orderByChild('timestamp').endAt(thresholdDate);
-    oldRecordsRef.once('value', (snapshot) => {
-      snapshot.forEach((childSnapshot) => {
-        childSnapshot.ref.remove();
-        console.log(`已刪除過期數據: ${childSnapshot.key}`);
-      });
-    });
+      console.log('數據已保存到 Firebase:', result);
+    }
 
   } catch (error) {
     console.error('抓取數據時出錯:', error);
   } finally {
-    await browser.close(); // 瀏覽器關閉
+    await browser.close();
+    return result;  // 返回抓取到的數據
   }
 }
 
@@ -156,7 +137,7 @@ async function broadcastMessage(message) {
   });
 };
 
-// 過去 24 小時的數據
+// 處理所有事件
 app.post('/webhook', (req, res) => {
   const events = req.body.events;
 
@@ -190,7 +171,7 @@ app.post('/webhook', (req, res) => {
         
           let highThresholdRecords = ''; // 超過閾值的記錄
           let hourlyRecords = {};         // 按每小時分組的記錄
-          
+        
           // 分組記錄，按每個小時來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
@@ -265,7 +246,74 @@ app.post('/webhook', (req, res) => {
           await Promise.all(sendHourlyMessages);
         
           console.log('24小時記錄已發送');
-        }               
+        }
+
+        // 新增：即時查詢 PM10 數據
+        if (userMessage === '即時查詢') {
+          console.log('執行即時查詢');
+
+          // 調用 scrapeData 函數進行即時查詢
+          const currentData = await scrapeData();
+
+          // 構建查詢結果的回覆訊息
+          let messageText = '即時 PM10 數據：\n';
+          if (currentData.station_184) {
+            messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
+          } else {
+            messageText += '理虹(184): 無法取得數據\n';
+          }
+          if (currentData.station_185) {
+            messageText += `理虹(185): ${currentData.station_185} μg/m³\n`;
+          } else {
+            messageText += '理虹(185): 無法取得數據\n';
+          }
+
+          // 保存即時數據到 Firebase
+          if (currentData.station_184 || currentData.station_185) {
+            const currentTime = getCurrentDateTime();
+            const dataRef = db.ref('pm10_records').push();
+            await dataRef.set({
+              timestamp: currentTime,
+              station_184: currentData.station_184 || null,
+              station_185: currentData.station_185 || null
+            });
+            console.log('即時查詢數據已保存到 Firebase:', currentData);
+          }
+
+          // 回覆訊息給用戶
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: messageText
+          });
+
+          // 檢查是否超過閾值，並發送警告及廣播
+          if (currentData.station_184 && parseInt(currentData.station_184) >= PM10_THRESHOLD) {
+            const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${currentData.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: alertMessage184
+            });
+            console.log('即時查詢超過閾值 (184) 發送警告:', alertMessage184);
+            
+            // 廣播警告訊息
+            await broadcastMessage(alertMessage184);
+          }
+
+          if (currentData.station_185 && parseInt(currentData.station_185) >= PM10_THRESHOLD) {
+            const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${currentData.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+            await client.replyMessage(event.replyToken, {
+              type: 'text',
+              text: alertMessage185
+            });
+            console.log('即時查詢超過閾值 (185) 發送警告:', alertMessage185);
+            
+            // 廣播警告訊息
+            await broadcastMessage(alertMessage185);
+          }
+
+          console.log('即時查詢結果已發送');
+        }
+
       }
     } catch (err) {
       console.error('處理訊息時出現錯誤:', err);
