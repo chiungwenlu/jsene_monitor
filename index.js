@@ -156,21 +156,32 @@ app.post('/webhook', (req, res) => {
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
 
-          // 獲取當前時間
           const now = Date.now();
-          const last24Hours = now - 24 * 60 * 60 * 1000; // 24小時前的時間戳
+          const last24Hours = now - 24 * 60 * 60 * 1000; // 計算24小時前的時間戳
 
-          // 查詢Firebase中過去24小時的記錄
+          // 查詢Firebase中的所有記錄
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
           const snapshot = await recentRecordsRef.once('value');
           const records = [];
+
           snapshot.forEach((childSnapshot) => {
             const record = childSnapshot.val();
-            const recordTime = new Date(record.timestamp).getTime();
+            const timestamp = record.timestamp; // 假設格式為 "MM/DD HH:MM"
 
-            // 過濾掉超過24小時的記錄
-            if (recordTime >= last24Hours) {
-              records.push(record);
+            // 手動解析日期和時間
+            const [datePart, timePart] = timestamp.split(' ');
+            const [month, day] = datePart.split('/').map(Number);
+            const [hours, minutes] = timePart.split(':').map(Number);
+
+            // 使用當前年份來創建 Date 對象
+            const recordDate = new Date();
+            recordDate.setMonth(month - 1); // 月份從0開始
+            recordDate.setDate(day);
+            recordDate.setHours(hours, minutes, 0, 0); // 設置小時、分鐘，並清零秒和毫秒
+
+            // 比較日期是否在過去24小時內
+            if (recordDate.getTime() >= last24Hours) {
+              records.push(record); // 只保留24小時內的記錄
             }
           });
 
@@ -257,7 +268,6 @@ app.post('/webhook', (req, res) => {
 
           console.log('24小時記錄已發送');
         }
-
 
 
         // 新增：即時查詢 PM10 數據
@@ -375,8 +385,8 @@ scheduleTaskAtIntervals(scrapeData, 5);
 
 // 刪除超過24小時記錄的函數
 async function deleteOldRecords() {
-  const now = Date.now();
-  const last24Hours = now - 24 * 60 * 60 * 1000; // 計算24小時前的時間戳
+  const now = new Date(); // 獲取當前時間
+  const last24Hours = now.getTime() - 24 * 60 * 60 * 1000; // 24小時前的時間戳
 
   // 查詢所有記錄
   const recordsRef = db.ref('pm10_records').orderByChild('timestamp');
@@ -385,9 +395,22 @@ async function deleteOldRecords() {
   // 遍歷所有記錄，刪除超過24小時的
   snapshot.forEach((childSnapshot) => {
     const record = childSnapshot.val();
-    const recordTime = new Date(record.timestamp).getTime();
+    const timestamp = record.timestamp; // 假設格式為 "MM/DD HH:MM"
 
-    if (recordTime < last24Hours) {
+    // 手動解析日期和時間
+    const [datePart, timePart] = timestamp.split(' ');
+    const [month, day] = datePart.split('/').map(Number); // 解析月份和日期
+    const [hours, minutes] = timePart.split(':').map(Number); // 解析小時和分鐘
+
+    // 使用當前年份來創建 Date 對象
+    const recordDate = new Date();
+    recordDate.setFullYear(now.getFullYear()); // 使用當前年份
+    recordDate.setMonth(month - 1); // 月份從0開始
+    recordDate.setDate(day);
+    recordDate.setHours(hours, minutes, 0, 0); // 設置小時、分鐘，並清零秒和毫秒
+
+    // 比較日期是否超過24小時
+    if (recordDate.getTime() < last24Hours) {
       // 刪除這條舊記錄
       db.ref(`pm10_records/${childSnapshot.key}`).remove()
         .then(() => {
@@ -400,11 +423,11 @@ async function deleteOldRecords() {
   });
 }
 
+
 // 每小時執行一次刪除任務
 setInterval(deleteOldRecords, 60 * 60 * 1000); // 每小時執行一次
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
   scrapeData();        // 啟動伺服器後抓取數據  
-  deleteOldRecords();  // 伺服器啟動後立即執行一次刪除
 });
