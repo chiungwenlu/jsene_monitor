@@ -156,9 +156,8 @@ app.post('/webhook', (req, res) => {
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
         
-          // 獲取當前時間，並計算 24 小時前的時間
           const now = new Date();
-          const last24Hours = now.getTime() - (24 * 60 * 60 * 1000); // 24 小時前的時間戳
+          const last24Hours = now.getTime() - (24 * 60 * 60 * 1000); // 計算24小時前的時間戳
         
           // 查詢 Firebase 中的所有記錄
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
@@ -183,33 +182,31 @@ app.post('/webhook', (req, res) => {
             recordDate.setMinutes(minutes); // 設置分鐘
             recordDate.setSeconds(0); // 設置秒為 0
         
-            // 顯示解析結果以進行檢查
-            console.log(`解析出的記錄時間: ${recordDate}, 記錄的 timestamp: ${timestamp}`);
-            console.log(`過去 24 小時的時間基準: ${new Date(last24Hours)}`);
-        
             // 判斷該記錄是否在過去 24 小時內
             if (recordDate.getTime() >= last24Hours) {
               records.push(record); // 保留過去 24 小時內的記錄
             }
           });
         
-          // 檢查是否有符合條件的記錄
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
         
           let highThresholdRecords = ''; // 超過閾值的記錄
-          let dailyRecords = {};         // 按日期分組的記錄
+          let dailyRecords = {};         // 按日期和小時分組的記錄
         
-          // 分組記錄，按日期來分
+          // 分組記錄，按日期和小時來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
-            const date = timestamp.split(' ')[0]; // 獲取日期部分
-            const hourMinute = timestamp.split(' ')[1]; // 獲取時間部分
+            const [date, time] = timestamp.split(' ');
+            const hour = time.split(':')[0]; // 獲取小時部分
         
-            // 初始化日期分組
+            // 初始化日期小時分組
             if (!dailyRecords[date]) {
-              dailyRecords[date] = [];
+              dailyRecords[date] = {};
+            }
+            if (!dailyRecords[date][hour]) {
+              dailyRecords[date][hour] = '';
             }
         
             // 超過閾值的記錄
@@ -220,8 +217,18 @@ app.post('/webhook', (req, res) => {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
             }
         
-            // 將記錄存入對應日期
-            dailyRecords[date].push({ hourMinute, record });
+            // 將記錄添加到對應日期和小時
+            dailyRecords[date][hour] += `${timestamp} - `;
+            if (record.station_184) {
+              dailyRecords[date][hour] += `理虹(184): ${record.station_184}`;
+            }
+            if (record.station_185) {
+              if (record.station_184) {
+                dailyRecords[date][hour] += ' / ';
+              }
+              dailyRecords[date][hour] += `理虹(185): ${record.station_185}`;
+            }
+            dailyRecords[date][hour] += '\n';
           });
         
           // 發送超過閾值的記錄
@@ -258,19 +265,17 @@ app.post('/webhook', (req, res) => {
         
           // 發送每個日期內的記錄，按小時由新到舊排序
           for (const date of sortedDates) {
-            // 按時間（小時和分鐘）由新到舊排序
-            const sortedRecordsByTime = dailyRecords[date].sort((a, b) => {
-              return new Date(`1970/01/01 ${b.hourMinute}`) - new Date(`1970/01/01 ${a.hourMinute}`);
-            });
+            // 按小時由新到舊排序
+            const sortedHours = Object.keys(dailyRecords[date]).sort((a, b) => parseInt(b) - parseInt(a));
         
-            // 發送每個日期內的記錄
-            for (const { hourMinute, record } of sortedRecordsByTime) {
+            for (const hour of sortedHours) {
+              // 將同一個小時的所有記錄整合成一個訊息
               const message = {
                 type: 'text',
-                text: `${date} ${hourMinute} - 理虹(184): ${record.station_184 || '無數據'} / 理虹(185): ${record.station_185 || '無數據'}`
+                text: `${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}`
               };
         
-              // 確保每條訊息依次發送
+              // 發送整合後的小時訊息
               await client.pushMessage(event.source.userId, message);
             }
           }
