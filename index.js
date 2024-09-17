@@ -155,7 +155,7 @@ app.post('/webhook', (req, res) => {
         // 如果用戶發送 "24小時記錄" 或 "24"
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
-          
+
           // 查詢 Firebase 過去 24 小時的數據
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
           const snapshot = await recentRecordsRef.once('value');
@@ -164,24 +164,25 @@ app.post('/webhook', (req, res) => {
             const record = childSnapshot.val();
             records.push(record);
           });
-        
+
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
-        
+
           let highThresholdRecords = ''; // 超過閾值的記錄
-          let hourlyRecords = {};         // 按每小時分組的記錄
-        
-          // 分組記錄，按每個小時來分
+          let dailyRecords = {};         // 按日期分組的記錄
+
+          // 分組記錄，按日期來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
-            const hour = timestamp.split(' ')[1].split(':')[0]; // 獲取小時部分
-        
-            // 初始化小時分組
-            if (!hourlyRecords[hour]) {
-              hourlyRecords[hour] = '';
+            const date = timestamp.split(' ')[0]; // 獲取日期部分
+            const hourMinute = timestamp.split(' ')[1]; // 獲取時間部分
+
+            // 初始化日期分組
+            if (!dailyRecords[date]) {
+              dailyRecords[date] = [];
             }
-        
+
             // 超過閾值的記錄
             if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
@@ -189,21 +190,11 @@ app.post('/webhook', (req, res) => {
             if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
             }
-        
-            // 將記錄添加到對應小時
-            hourlyRecords[hour] += `${timestamp} - `;
-            if (record.station_184) {
-              hourlyRecords[hour] += `理虹(184): ${record.station_184}`;
-            }
-            if (record.station_185) {
-              if (record.station_184) {
-                hourlyRecords[hour] += ' / ';
-              }
-              hourlyRecords[hour] += `理虹(185): ${record.station_185}`;
-            }
-            hourlyRecords[hour] += '\n';
+
+            // 將記錄存入對應日期
+            dailyRecords[date].push({ hourMinute, record });
           });
-        
+
           // 發送超過閾值的記錄
           if (highThresholdRecords) {
             await client.replyMessage(event.replyToken, [
@@ -232,23 +223,35 @@ app.post('/webhook', (req, res) => {
               }
             ]);
           }
-        
-          // 發送每小時的記錄，按排序後的小時順序發送
-          const sortedHours = Object.keys(hourlyRecords).sort((a, b) => parseInt(a) - parseInt(b));
 
-          const sendHourlyMessages = sortedHours.map(async (hour) => {
-            const message = {
-              type: 'text',
-              text: `${hourlyRecords[hour]}`
-            };
-            return client.pushMessage(event.source.userId, message);
+          // 按日期由新到舊排列
+          const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
+
+          // 按小時由新到舊發送
+          const sendHourlyMessages = sortedDates.map(async (date) => {
+            // 按時間（小時和分鐘）由新到舊排序
+            const sortedRecordsByTime = dailyRecords[date].sort((a, b) => {
+              return new Date(`1970/01/01 ${b.hourMinute}`) - new Date(`1970/01/01 ${a.hourMinute}`);
+            });
+
+            // 發送每個日期內的記錄
+            const messages = sortedRecordsByTime.map(({ hourMinute, record }) => {
+              return `${date} ${hourMinute} - 理虹(184): ${record.station_184 || '無數據'} / 理虹(185): ${record.station_185 || '無數據'}`;
+            });
+
+            // 組裝消息為一個長消息
+            const messageText = messages.join('\n');
+
+            // 發送該日期的所有記錄
+            return client.pushMessage(event.source.userId, { type: 'text', text: messageText });
           });
-        
+
           // 確保所有訊息依次發送
           await Promise.all(sendHourlyMessages);
-        
+
           console.log('24小時記錄已發送');
         }
+
 
         // 新增：即時查詢 PM10 數據
         if (userMessage === '即時查詢') {
