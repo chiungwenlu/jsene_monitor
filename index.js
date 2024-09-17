@@ -155,54 +155,63 @@ app.post('/webhook', (req, res) => {
         // 如果用戶發送 "24小時記錄" 或 "24"
         if (userMessage === '24小時記錄' || userMessage === '24') {
           console.log('準備列出24小時記錄');
-
-          const now = Date.now();
-          const last24Hours = now - 24 * 60 * 60 * 1000; // 計算24小時前的時間戳
-
-          // 查詢Firebase中的所有記錄
+        
+          // 獲取當前時間，並計算 24 小時前的時間
+          const now = new Date();
+          const last24Hours = now.getTime() - (24 * 60 * 60 * 1000); // 24 小時前的時間戳
+        
+          // 查詢 Firebase 中的所有記錄
           const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
           const snapshot = await recentRecordsRef.once('value');
           const records = [];
-
+        
           snapshot.forEach((childSnapshot) => {
             const record = childSnapshot.val();
             const timestamp = record.timestamp; // 假設格式為 "MM/DD HH:MM"
-
+        
             // 手動解析日期和時間
             const [datePart, timePart] = timestamp.split(' ');
             const [month, day] = datePart.split('/').map(Number);
             const [hours, minutes] = timePart.split(':').map(Number);
-
-            // 使用當前年份來創建 Date 對象
+        
+            // 使用當前年份創建記錄的 Date 對象
             const recordDate = new Date();
-            recordDate.setMonth(month - 1); // 月份從0開始
-            recordDate.setDate(day);
-            recordDate.setHours(hours, minutes, 0, 0); // 設置小時、分鐘，並清零秒和毫秒
-
-            // 比較日期是否在過去24小時內
+            recordDate.setFullYear(now.getFullYear()); // 使用當前年份
+            recordDate.setMonth(month - 1); // 設置月份 (0 - 11)
+            recordDate.setDate(day); // 設置日期
+            recordDate.setHours(hours); // 設置小時
+            recordDate.setMinutes(minutes); // 設置分鐘
+            recordDate.setSeconds(0); // 設置秒為 0
+        
+            // 顯示解析結果以進行檢查
+            console.log(`解析出的記錄時間: ${recordDate}, 記錄的 timestamp: ${timestamp}`);
+            console.log(`過去 24 小時的時間基準: ${new Date(last24Hours)}`);
+        
+            // 判斷該記錄是否在過去 24 小時內
             if (recordDate.getTime() >= last24Hours) {
-              records.push(record); // 只保留24小時內的記錄
+              records.push(record); // 保留過去 24 小時內的記錄
             }
           });
-
+        
+          // 檢查是否有符合條件的記錄
           if (records.length === 0) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
           }
-
+        
           let highThresholdRecords = ''; // 超過閾值的記錄
           let dailyRecords = {};         // 按日期分組的記錄
-
+        
           // 分組記錄，按日期來分
           records.reverse().forEach((record) => {
             const timestamp = record.timestamp;
             const date = timestamp.split(' ')[0]; // 獲取日期部分
             const hourMinute = timestamp.split(' ')[1]; // 獲取時間部分
-
+        
             // 初始化日期分組
             if (!dailyRecords[date]) {
               dailyRecords[date] = [];
             }
-
+        
             // 超過閾值的記錄
             if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
@@ -210,11 +219,11 @@ app.post('/webhook', (req, res) => {
             if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
             }
-
+        
             // 將記錄存入對應日期
             dailyRecords[date].push({ hourMinute, record });
           });
-
+        
           // 發送超過閾值的記錄
           if (highThresholdRecords) {
             await client.replyMessage(event.replyToken, [
@@ -243,33 +252,32 @@ app.post('/webhook', (req, res) => {
               }
             ]);
           }
-
+        
           // 按日期由新到舊排列
           const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
-
+        
           // 發送每個日期內的記錄，按小時由新到舊排序
           for (const date of sortedDates) {
             // 按時間（小時和分鐘）由新到舊排序
             const sortedRecordsByTime = dailyRecords[date].sort((a, b) => {
               return new Date(`1970/01/01 ${b.hourMinute}`) - new Date(`1970/01/01 ${a.hourMinute}`);
             });
-
+        
             // 發送每個日期內的記錄
             for (const { hourMinute, record } of sortedRecordsByTime) {
               const message = {
                 type: 'text',
                 text: `${date} ${hourMinute} - 理虹(184): ${record.station_184 || '無數據'} / 理虹(185): ${record.station_185 || '無數據'}`
               };
-
+        
               // 確保每條訊息依次發送
               await client.pushMessage(event.source.userId, message);
             }
           }
-
+        
           console.log('24小時記錄已發送');
         }
-
-
+  
         // 新增：即時查詢 PM10 數據
         if (userMessage === '即時查詢') {
           console.log('執行即時查詢');
