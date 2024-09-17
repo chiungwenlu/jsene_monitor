@@ -233,8 +233,10 @@ app.post('/webhook', (req, res) => {
             ]);
           }
         
-          // 發送每小時的記錄，分別作為不同的訊息
-          const sendHourlyMessages = Object.keys(hourlyRecords).map(async (hour) => {
+          // 發送每小時的記錄，按排序後的小時順序發送
+          const sortedHours = Object.keys(hourlyRecords).sort((a, b) => parseInt(a) - parseInt(b));
+
+          const sendHourlyMessages = sortedHours.map(async (hour) => {
             const message = {
               type: 'text',
               text: `${hourlyRecords[hour]}`
@@ -251,12 +253,6 @@ app.post('/webhook', (req, res) => {
         // 新增：即時查詢 PM10 數據
         if (userMessage === '即時查詢') {
           console.log('執行即時查詢');
-
-          // 先回覆用戶查詢中的訊息
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: '查詢中，請稍待…'
-          });
 
           // 調用 scrapeData 函數進行即時查詢
           const currentData = await scrapeData();
@@ -287,8 +283,6 @@ app.post('/webhook', (req, res) => {
           }
 
           // 回覆訊息給用戶
-          const currentTime = getCurrentDateTime();
-          messageText = currentTime + messageText;
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: messageText
