@@ -300,7 +300,7 @@ app.post('/webhook', (req, res) => {
               await client.pushMessage(event.source.userId, message);
 
               // 在發送下一個訊息之前等待一下，避免密集發送觸發LINE警報
-              await delay(300); // 調整等待時間（毫秒）以適應你的需求
+              await delay(1000); // 調整等待時間（毫秒）以適應你的需求
             }
           }
         
