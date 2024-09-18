@@ -224,7 +224,13 @@ app.post('/webhook', async (req, res) => {
         // 整理記錄，並找出超過閾值的記錄
         let dailyRecords = {};
         let highThresholdRecords = ''; // 超過閾值的記錄
+        let highestLowestRecords = ''; // 記錄最高和最低值
         const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
+
+        let highest184 = { value: -Infinity, timestamp: '' };
+        let lowest184 = { value: Infinity, timestamp: '' };
+        let highest185 = { value: -Infinity, timestamp: '' };
+        let lowest185 = { value: Infinity, timestamp: '' };
 
         records.reverse().forEach((record) => {
           const timestamp = record.timestamp;
@@ -240,22 +246,48 @@ app.post('/webhook', async (req, res) => {
 
           dailyRecords[date][hour] += `${timestamp} - `;
           if (record.station_184) {
+            const pm10Value184 = parseInt(record.station_184);
             dailyRecords[date][hour] += `理虹(184): ${record.station_184}`;
-            if (parseInt(record.station_184) >= PM10_THRESHOLD) {
+            if (pm10Value184 >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184} μg/m³\n`;
+            }
+            // 更新最高和最低值
+            if (pm10Value184 > highest184.value) {
+              highest184.value = pm10Value184;
+              highest184.timestamp = timestamp;
+            }
+            if (pm10Value184 < lowest184.value) {
+              lowest184.value = pm10Value184;
+              lowest184.timestamp = timestamp;
             }
           }
           if (record.station_185) {
+            const pm10Value185 = parseInt(record.station_185);
             if (record.station_184) {
               dailyRecords[date][hour] += ' / ';
             }
             dailyRecords[date][hour] += `理虹(185): ${record.station_185}`;
-            if (parseInt(record.station_185) >= PM10_THRESHOLD) {
+            if (pm10Value185 >= PM10_THRESHOLD) {
               highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185} μg/m³\n`;
+            }
+            // 更新最高和最低值
+            if (pm10Value185 > highest185.value) {
+              highest185.value = pm10Value185;
+              highest185.timestamp = timestamp;
+            }
+            if (pm10Value185 < lowest185.value) {
+              lowest185.value = pm10Value185;
+              lowest185.timestamp = timestamp;
             }
           }
           dailyRecords[date][hour] += '\n';
         });
+
+        // 添加最高和最低值到回覆訊息
+        highestLowestRecords += `理虹(184) 最高值: ${highest184.value} μg/m³ (發生於: ${highest184.timestamp})\n`;
+        highestLowestRecords += `理虹(184) 最低值: ${lowest184.value} μg/m³ (發生於: ${lowest184.timestamp})\n`;
+        highestLowestRecords += `理虹(185) 最高值: ${highest185.value} μg/m³ (發生於: ${highest185.timestamp})\n`;
+        highestLowestRecords += `理虹(185) 最低值: ${lowest185.value} μg/m³ (發生於: ${lowest185.timestamp})\n`;
 
         const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
         
@@ -281,11 +313,11 @@ app.post('/webhook', async (req, res) => {
         const downloadLink = `https://puppeteer-render-f857.onrender.com/download?file=24hr_record.txt`;
 
         // 準備回覆訊息
-        let replyMessage = '';
+        let replyMessage = highestLowestRecords; // 加入最高和最低值
         if (highThresholdRecords) {
-          replyMessage = `以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}`;
+          replyMessage += `\n以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}`;
         } else {
-          replyMessage = `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。`;
+          replyMessage += `\n24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。`;
         }
 
         // 發送訊息包含超過閾值的記錄及下載連結
