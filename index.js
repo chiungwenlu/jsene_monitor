@@ -285,8 +285,8 @@ app.post('/webhook', async (req, res) => {
 
         // 添加最高和最低值到回覆訊息
         highestLowestRecords += `理虹(184) 最高值: ${highest184.value} μg/m³ (發生於: ${highest184.timestamp})\n`;
-        highestLowestRecords += `理虹(184) 最低值: ${lowest184.value} μg/m³ (發生於: ${lowest184.timestamp})\n`;
         highestLowestRecords += `理虹(185) 最高值: ${highest185.value} μg/m³ (發生於: ${highest185.timestamp})\n`;
+        highestLowestRecords += `理虹(184) 最低值: ${lowest184.value} μg/m³ (發生於: ${lowest184.timestamp})\n`;        
         highestLowestRecords += `理虹(185) 最低值: ${lowest185.value} μg/m³ (發生於: ${lowest185.timestamp})\n`;
 
         const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
@@ -315,9 +315,9 @@ app.post('/webhook', async (req, res) => {
         // 準備回覆訊息
         let replyMessage = highestLowestRecords; // 加入最高和最低值
         if (highThresholdRecords) {
-          replyMessage += `\n以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}`;
+          replyMessage = `以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}\n` + replyMessage;
         } else {
-          replyMessage += `\n24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。`;
+          replyMessage += `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。\n` + replyMessage;
         }
 
         // 發送訊息包含超過閾值的記錄及下載連結
