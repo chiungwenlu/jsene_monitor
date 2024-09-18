@@ -296,6 +296,7 @@ app.post('/webhook', (req, res) => {
               };
         
               // 發送整合後的小時訊息
+              console.log(`${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}`)
               await client.pushMessage(event.source.userId, message);
 
               // 在發送下一個訊息之前等待一下，避免密集發送觸發LINE警報
