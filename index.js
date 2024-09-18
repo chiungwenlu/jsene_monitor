@@ -315,9 +315,9 @@ app.post('/webhook', async (req, res) => {
         // 準備回覆訊息
         let replyMessage = highestLowestRecords; // 加入最高和最低值
         if (highThresholdRecords) {
-          replyMessage = `以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}\n` + replyMessage;
+          replyMessage = `以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}\n\n` + replyMessage;
         } else {
-          replyMessage += `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。\n` + replyMessage;
+          replyMessage = `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。\n\n` + replyMessage;
         }
 
         // 發送訊息包含超過閾值的記錄及下載連結
