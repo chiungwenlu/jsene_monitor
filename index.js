@@ -61,6 +61,13 @@ async function generateRecordFile(dailyRecords, sortedDates) {
   }
 
   const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+
+  // 檢查並創建 records 目錄
+  const dir = path.join(__dirname, 'records');
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true }); // 創建目錄，{ recursive: true } 保證多層目錄可以被創建
+  }
+
   fs.writeFileSync(filePath, fileContent, 'utf8');
   return filePath;
 }
@@ -250,6 +257,12 @@ app.post('/webhook', async (req, res) => {
           for (const hour of sortedHours) {
             fileContent += `${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}\n`;
           }
+        }
+
+        // 檢查並創建 records 目錄
+        const dir = path.join(__dirname, 'records');
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true }); // 創建目錄，{ recursive: true } 保證多層目錄可以被創建
         }
 
         const filePath = path.join(__dirname, 'records', '24hr_record.txt');
