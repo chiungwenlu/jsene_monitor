@@ -171,9 +171,6 @@ async function broadcastMessage(message) {
 };
 
 // 處理所有事件
-const fs = require('fs');
-const path = require('path');
-
 app.post('/webhook', async (req, res) => {
   const events = req.body.events;
 
