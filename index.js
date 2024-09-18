@@ -3,6 +3,8 @@ const puppeteer = require("puppeteer");
 const axios = require('axios');
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
+const fs = require('fs');
+const path = require('path');
 require("dotenv").config();
 
 const app = express();
@@ -48,8 +50,19 @@ function getCurrentDateTime() {
   return `${month}/${day} ${hours}:${minutes}`;
 }
 
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+async function generateRecordFile(dailyRecords, sortedDates) {
+  let fileContent = '';
+
+  for (const date of sortedDates) {
+    const sortedHours = Object.keys(dailyRecords[date]).sort((a, b) => parseInt(b) - parseInt(a));
+    for (const hour of sortedHours) {
+      fileContent += `${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}\n`;
+    }
+  }
+
+  const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+  fs.writeFileSync(filePath, fileContent, 'utf8');
+  return filePath;
 }
 
 async function scrapeData() {
@@ -158,197 +171,145 @@ async function broadcastMessage(message) {
 };
 
 // 處理所有事件
-app.post('/webhook', (req, res) => {
+const fs = require('fs');
+const path = require('path');
+
+app.post('/webhook', async (req, res) => {
   const events = req.body.events;
 
-  // 確認有事件發生
   if (!events || events.length === 0) {
     return res.status(200).send("No events to process.");
   }
 
-  // 處理所有事件
-  events.forEach(async (event) => {
-    try {
-      if (event.type === 'message' && event.message.type === 'text') {
-        const userMessage = event.message.text.trim();
+  for (const event of events) {
+    if (event.type === 'message' && event.message.type === 'text') {
+      const userMessage = event.message.text.trim();
 
-        // 如果用戶發送 "24小時記錄" 或 "24"
-        if (userMessage === '24小時記錄' || userMessage === '24') {
-          console.log('準備列出24小時記錄');
-        
-          const now = new Date();
-          const last24Hours = now.getTime() - (24 * 60 * 60 * 1000); // 計算24小時前的時間戳
-        
-          // 查詢 Firebase 中的所有記錄
-          const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
-          const snapshot = await recentRecordsRef.once('value');
-          const records = [];
-        
-          snapshot.forEach((childSnapshot) => {
-            const record = childSnapshot.val();
-            const timestamp = record.timestamp; // 假設格式為 "MM/DD HH:MM"
-        
-            // 手動解析日期和時間
-            const [datePart, timePart] = timestamp.split(' ');
-            const [month, day] = datePart.split('/').map(Number);
-            const [hours, minutes] = timePart.split(':').map(Number);
-        
-            // 使用當前年份創建記錄的 Date 對象
-            const recordDate = new Date();
-            recordDate.setFullYear(now.getFullYear()); // 使用當前年份
-            recordDate.setMonth(month - 1); // 設置月份 (0 - 11)
-            recordDate.setDate(day); // 設置日期
-            recordDate.setHours(hours); // 設置小時
-            recordDate.setMinutes(minutes); // 設置分鐘
-            recordDate.setSeconds(0); // 設置秒為 0
-        
-            // 判斷該記錄是否在過去 24 小時內
-            if (recordDate.getTime() >= last24Hours) {
-              records.push(record); // 保留過去 24 小時內的記錄
-            }
-          });
-        
-          if (records.length === 0) {
-            return client.replyMessage(event.replyToken, { type: 'text', text: '過去24小時沒有記錄' });
+      // 24小時記錄
+      if (userMessage === '24小時記錄' || userMessage === '24') {
+        console.log('準備生成24小時記錄檔案');
+
+        const now = new Date();
+        const last24Hours = now.getTime() - (24 * 60 * 60 * 1000); // 計算24小時前的時間戳
+
+        // 從 Firebase 查詢過去24小時的記錄
+        const recentRecordsRef = db.ref('pm10_records').orderByChild('timestamp');
+        const snapshot = await recentRecordsRef.once('value');
+        const records = [];
+
+        snapshot.forEach((childSnapshot) => {
+          const record = childSnapshot.val();
+          const timestamp = record.timestamp;
+
+          const [datePart, timePart] = timestamp.split(' ');
+          const [month, day] = datePart.split('/').map(Number);
+          const [hours, minutes] = timePart.split(':').map(Number);
+
+          const recordDate = new Date();
+          recordDate.setFullYear(now.getFullYear());
+          recordDate.setMonth(month - 1);
+          recordDate.setDate(day);
+          recordDate.setHours(hours);
+          recordDate.setMinutes(minutes);
+
+          if (recordDate.getTime() >= last24Hours) {
+            records.push(record);
           }
-        
-          let highThresholdRecords = ''; // 超過閾值的記錄
-          let dailyRecords = {};         // 按日期和小時分組的記錄
-        
-          // 分組記錄，按日期和小時來分
-          records.reverse().forEach((record) => {
-            const timestamp = record.timestamp;
-            const [date, time] = timestamp.split(' ');
-            const hour = time.split(':')[0]; // 獲取小時部分
-        
-            // 初始化日期小時分組
-            if (!dailyRecords[date]) {
-              dailyRecords[date] = {};
-            }
-            if (!dailyRecords[date][hour]) {
-              dailyRecords[date][hour] = '';
-            }
-        
-            // 超過閾值的記錄
-            if (record.station_184 && parseInt(record.station_184) >= PM10_THRESHOLD) {
-              highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184}\n`;
-            }
-            if (record.station_185 && parseInt(record.station_185) >= PM10_THRESHOLD) {
-              highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185}\n`;
-            }
-        
-            // 將記錄添加到對應日期和小時
-            dailyRecords[date][hour] += `${timestamp} - `;
+        });
+
+        // 整理記錄
+        let dailyRecords = {};
+        records.reverse().forEach((record) => {
+          const timestamp = record.timestamp;
+          const [date, time] = timestamp.split(' ');
+          const hour = time.split(':')[0];
+
+          if (!dailyRecords[date]) {
+            dailyRecords[date] = {};
+          }
+          if (!dailyRecords[date][hour]) {
+            dailyRecords[date][hour] = '';
+          }
+
+          dailyRecords[date][hour] += `${timestamp} - `;
+          if (record.station_184) {
+            dailyRecords[date][hour] += `理虹(184): ${record.station_184}`;
+          }
+          if (record.station_185) {
             if (record.station_184) {
-              dailyRecords[date][hour] += `理虹(184): ${record.station_184}`;
+              dailyRecords[date][hour] += ' / ';
             }
-            if (record.station_185) {
-              if (record.station_184) {
-                dailyRecords[date][hour] += ' / ';
-              }
-              dailyRecords[date][hour] += `理虹(185): ${record.station_185}`;
-            }
-            dailyRecords[date][hour] += '\n';
-          });
-        
-          // 發送超過閾值的記錄
-          if (highThresholdRecords) {
-            await client.replyMessage(event.replyToken, [
-              {
-                type: 'text',
-                text: `以下為超過 ${PM10_THRESHOLD} 的記錄：`
-              },
-              {
-                type: 'text',
-                text: `${highThresholdRecords}`
-              },
-              {
-                type: 'text',
-                text: `以下為24小時內的記錄：`
-              }
-            ]);
-          } else {
-            await client.replyMessage(event.replyToken, [
-              {
-                type: 'text',
-                text: `在24小時內，沒有超過 ${PM10_THRESHOLD} 的記錄`
-              },
-              {
-                type: 'text',
-                text: `以下為24小時內的記錄：`
-              }
-            ]);
+            dailyRecords[date][hour] += `理虹(185): ${record.station_185}`;
           }
-        
-          // 按日期由新到舊排列
-          const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
-        
-          // 發送每個日期內的記錄，按小時由新到舊排序
-          for (const date of sortedDates) {
-            // 按小時由新到舊排序
-            const sortedHours = Object.keys(dailyRecords[date]).sort((a, b) => parseInt(b) - parseInt(a));
-        
-            for (const hour of sortedHours) {
-              // 將同一個小時的所有記錄整合成一個訊息
-              const message = {
-                type: 'text',
-                text: `${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}`
-              };
-        
-              // 發送整合後的小時訊息
-              console.log(`${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}`)
-              await client.pushMessage(event.source.userId, message);
+          dailyRecords[date][hour] += '\n';
+        });
 
-              // 在發送下一個訊息之前等待一下，避免密集發送觸發LINE警報
-              await delay(1000); // 調整等待時間（毫秒）以適應你的需求
-            }
+        const sortedDates = Object.keys(dailyRecords).sort((a, b) => new Date(b) - new Date(a));
+        
+        // 生成記錄檔案
+        let fileContent = '';
+        for (const date of sortedDates) {
+          const sortedHours = Object.keys(dailyRecords[date]).sort((a, b) => parseInt(b) - parseInt(a));
+          for (const hour of sortedHours) {
+            fileContent += `${date} ${hour}:00 - ${hour}:59\n${dailyRecords[date][hour]}\n`;
           }
-        
-          console.log('24小時記錄已發送');
-        }
-  
-        // 新增：即時查詢 PM10 數據
-        if (userMessage === '即時查詢') {
-          console.log('執行即時查詢');
-
-          // 調用 scrapeData 函數進行即時查詢
-          const currentData = await scrapeData();
-
-          // 構建查詢結果的回覆訊息
-          let messageText = '即時 PM10 數據：\n';
-          if (currentData.station_184) {
-            messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
-          } else {
-            messageText += '理虹(184): 無法取得數據\n';
-          }
-          if (currentData.station_185) {
-            messageText += `理虹(185): ${currentData.station_185} μg/m³\n`;
-          } else {
-            messageText += '理虹(185): 無法取得數據\n';
-          }
-
-          // 回覆訊息給用戶
-          await client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: messageText
-          });
-
-          console.log('即時查詢結果已發送');
         }
 
+        const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+        fs.writeFileSync(filePath, fileContent, 'utf8');
+
+        // 提供下載連結
+        const downloadLink = `https://puppeteer-render-f857.onrender.com/download?file=24hr_record.txt`;
+
+        // 發送訊息包含下載連結
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: `24小時內的記錄已生成，請點擊下方鏈接下載：\n${downloadLink}`
+        });
       }
-    } catch (err) {
-      console.error('處理訊息時出現錯誤:', err);
-      // 回應錯誤訊息給用戶
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '抱歉，發生了一些錯誤，請稍後再試。'
-      });
+
+      // 即時查詢 PM10 數據
+      if (userMessage === '即時查詢') {
+        console.log('執行即時查詢');
+
+        // 調用 scrapeData 函數進行即時查詢
+        const currentData = await scrapeData();
+
+        // 構建查詢結果的回覆訊息
+        let messageText = '即時 PM10 數據：\n';
+        if (currentData.station_184) {
+          messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
+        } else {
+          messageText += '理虹(184): 無法取得數據\n';
+        }
+        if (currentData.station_185) {
+          messageText += `理虹(185): ${currentData.station_185} μg/m³\n`;
+        } else {
+          messageText += '理虹(185): 無法取得數據\n';
+        }
+
+        // 回覆訊息給用戶
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: messageText
+        });
+
+        console.log('即時查詢結果已發送');
+      }
+    }
+  }
+  res.status(200).end();
+});
+
+// 下載路由
+app.get('/download', (req, res) => {
+  const file = path.join(__dirname, 'records', req.query.file);
+  res.download(file, (err) => {
+    if (err) {
+      console.error('下載文件時出錯:', err);
+      res.status(500).send('文件下載失敗');
     }
   });
-
-  // 回應 LINE 的伺服器，告知請求已收到
-  res.status(200).end();
 });
 
 // 設置 ping 路由接收 pinger-app 的請求
