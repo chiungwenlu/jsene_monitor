@@ -32,7 +32,6 @@ admin.initializeApp({
 });
 const db = admin.database();
 
-
 function getCurrentDateTime() {
   const now = new Date();
   
@@ -47,6 +46,10 @@ function getCurrentDateTime() {
   const minutes = taiwanTime.getMinutes().toString().padStart(2, '0');
   
   return `${month}/${day} ${hours}:${minutes}`;
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function scrapeData() {
@@ -102,7 +105,7 @@ async function scrapeData() {
     });
     console.log('理虹(185) PM10 數據:', result.station_185);
 
-    // 如果是自動抓取，保存到 Firebase
+    // 保存到 Firebase
     if (result.station_184 || result.station_185) {
       const currentTime = getCurrentDateTime();
       const dataRef = db.ref('pm10_records').push();
@@ -112,6 +115,23 @@ async function scrapeData() {
         station_185: result.station_185 || null
       });
       console.log('數據已保存到 Firebase:', result);
+    }
+
+    // 檢查是否超過閾值，並發送警告及廣播
+    if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
+      const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${result.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+      console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
+      
+      // 廣播警告訊息
+      await broadcastMessage(alertMessage184);
+    }
+
+    if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
+      const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${result.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+      console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
+      
+      // 廣播警告訊息
+      await broadcastMessage(alertMessage185);
     }
 
   } catch (error) {
@@ -277,6 +297,9 @@ app.post('/webhook', (req, res) => {
         
               // 發送整合後的小時訊息
               await client.pushMessage(event.source.userId, message);
+
+              // 在發送下一個訊息之前等待一下，避免密集發送觸發LINE警報
+              await delay(300); // 調整等待時間（毫秒）以適應你的需求
             }
           }
         
@@ -303,48 +326,11 @@ app.post('/webhook', (req, res) => {
             messageText += '理虹(185): 無法取得數據\n';
           }
 
-          // 保存即時數據到 Firebase
-          if (currentData.station_184 || currentData.station_185) {
-            const currentTime = getCurrentDateTime();
-            const dataRef = db.ref('pm10_records').push();
-            await dataRef.set({
-              timestamp: currentTime,
-              station_184: currentData.station_184 || null,
-              station_185: currentData.station_185 || null
-            });
-            console.log('即時查詢數據已保存到 Firebase:', currentData);
-          }
-
           // 回覆訊息給用戶
           await client.replyMessage(event.replyToken, {
             type: 'text',
             text: messageText
           });
-
-          // 檢查是否超過閾值，並發送警告及廣播
-          if (currentData.station_184 && parseInt(currentData.station_184) >= PM10_THRESHOLD) {
-            const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${currentData.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: alertMessage184
-            });
-            console.log('即時查詢超過閾值 (184) 發送警告:', alertMessage184);
-            
-            // 廣播警告訊息
-            await broadcastMessage(alertMessage184);
-          }
-
-          if (currentData.station_185 && parseInt(currentData.station_185) >= PM10_THRESHOLD) {
-            const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${currentData.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
-            await client.replyMessage(event.replyToken, {
-              type: 'text',
-              text: alertMessage185
-            });
-            console.log('即時查詢超過閾值 (185) 發送警告:', alertMessage185);
-            
-            // 廣播警告訊息
-            await broadcastMessage(alertMessage185);
-          }
 
           console.log('即時查詢結果已發送');
         }
