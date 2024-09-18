@@ -221,8 +221,11 @@ app.post('/webhook', async (req, res) => {
           }
         });
 
-        // 整理記錄
+        // 整理記錄，並找出超過閾值的記錄
         let dailyRecords = {};
+        let highThresholdRecords = ''; // 超過閾值的記錄
+        const PM10_THRESHOLD = parseInt(process.env.PM10_THRESHOLD);
+
         records.reverse().forEach((record) => {
           const timestamp = record.timestamp;
           const [date, time] = timestamp.split(' ');
@@ -238,12 +241,18 @@ app.post('/webhook', async (req, res) => {
           dailyRecords[date][hour] += `${timestamp} - `;
           if (record.station_184) {
             dailyRecords[date][hour] += `理虹(184): ${record.station_184}`;
+            if (parseInt(record.station_184) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(184): ${record.station_184} μg/m³\n`;
+            }
           }
           if (record.station_185) {
             if (record.station_184) {
               dailyRecords[date][hour] += ' / ';
             }
             dailyRecords[date][hour] += `理虹(185): ${record.station_185}`;
+            if (parseInt(record.station_185) >= PM10_THRESHOLD) {
+              highThresholdRecords += `${timestamp} - 理虹(185): ${record.station_185} μg/m³\n`;
+            }
           }
           dailyRecords[date][hour] += '\n';
         });
@@ -259,23 +268,37 @@ app.post('/webhook', async (req, res) => {
           }
         }
 
-        // 檢查並創建 records 目錄
+        // 確保 records 資料夾存在
         const dir = path.join(__dirname, 'records');
         if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true }); // 創建目錄，{ recursive: true } 保證多層目錄可以被創建
+          fs.mkdirSync(dir, { recursive: true });
         }
 
-        const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+        const filePath = path.join(dir, '24hr_record.txt');
         fs.writeFileSync(filePath, fileContent, 'utf8');
 
         // 提供下載連結
         const downloadLink = `https://puppeteer-render-f857.onrender.com/download?file=24hr_record.txt`;
 
-        // 發送訊息包含下載連結
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: `24小時內的記錄已生成，請點擊下方鏈接下載：\n${downloadLink}`
-        });
+        // 準備回覆訊息
+        let replyMessage = '';
+        if (highThresholdRecords) {
+          replyMessage = `以下為24小時內超過 ${PM10_THRESHOLD} μg/m³ 的記錄：\n${highThresholdRecords}`;
+        } else {
+          replyMessage = `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。`;
+        }
+
+        // 發送訊息包含超過閾值的記錄及下載連結
+        await client.replyMessage(event.replyToken, [
+          {
+            type: 'text',
+            text: replyMessage
+          },
+          {
+            type: 'text',
+            text: `24小時內的記錄已生成，請點擊下方鏈接下載：\n${downloadLink}`
+          }
+        ]);
       }
 
       // 即時查詢 PM10 數據
