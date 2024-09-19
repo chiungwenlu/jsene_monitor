@@ -64,6 +64,8 @@ async function deleteOldRecords() {
     const record = childSnapshot.val();
     const timestamp = new Date(record.timestamp).getTime(); // 將時間戳轉換為毫秒級
 
+    console.log(`last24Hours: ${last24Hours}, 目前記錄的timestamp: ${timestamp}`)
+    
     // 比較記錄是否超過24小時
     if (timestamp < last24Hours) {
       // 刪除這條記錄
