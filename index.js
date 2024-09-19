@@ -55,16 +55,20 @@ async function deleteOldRecords() {
   const now = Date.now(); // 獲取當前時間的毫秒級時間戳
   const last24Hours = now - (24 * 60 * 60 * 1000); // 計算24小時前的時間戳
 
+  console.log(`last24Hours: ${last24Hours}`);
+
   // 查詢所有記錄
   const recordsRef = db.ref('pm10_records').orderByChild('timestamp');
   const snapshot = await recordsRef.once('value');
+
+  console.log('檢查超過24小時的記錄...');
 
   // 遍歷所有記錄，刪除超過24小時的
   snapshot.forEach((childSnapshot) => {
     const record = childSnapshot.val();
     const timestamp = new Date(record.timestamp).getTime(); // 將時間戳轉換為毫秒級
 
-    console.log(`last24Hours: ${last24Hours}, 目前記錄的timestamp: ${timestamp}`)
+    console.log(`目前記錄的timestamp: ${timestamp}`);
     
     // 比較記錄是否超過24小時
     if (timestamp < last24Hours) {
