@@ -22,6 +22,9 @@ const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
+console.log(`LINE_CHANNEL_ACCESS_TOKEN: ${channelAccessToken}`);
+console.log(`LINE_CHANNEL_SECRET: ${channelSecret}`);
+
 
 // 設置 LINE 客戶端
 const client = new line.Client(config);
@@ -245,17 +248,20 @@ async function scrapeData() {
 }
 
 // Webhook 接收事件處理
-app.post('/webhook', line.middleware(config), async (req, res) => {
+app.post('/webhook', async (req, res) => {
     const events = req.body.events;
-
-    // 處理所有接收到的事件
-    events.forEach(async (event) => {
-        // 確認事件類型為 message 且訊息為文字
-        if (event.type === 'message' && event.message.type === 'text') {
-            const userMessage = event.message.text;
+  
+    if (!events || events.length === 0) {
+      return res.status(200).send("No events to process.");
+    }
+  
+    for (const event of events) {
+      if (event.type === 'message' && event.message.type === 'text') {
+        const userMessage = event.message.text.trim();
 
             // 當使用者發送 "即時查詢" 訊息時
             if (userMessage === '即時查詢') {
+                console.log('執行即時查詢');
                 try {
                     // 從 Firebase 取得最近的 PM10 資料
                     const recentPM10Data = await getLatestPM10Data();
@@ -275,7 +281,7 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
                 }
             }
         }
-    });
+    };
 
     // 回應 200 狀態碼，告知 LINE 接收成功
     res.status(200).end();
