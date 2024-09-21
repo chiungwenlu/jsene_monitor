@@ -326,7 +326,7 @@ app.post('/webhook', async (req, res) => {
                     const filePath = await generateRecordFile(records);
                     
                     // 將超過閾值的記錄發送給使用者
-                    const exceedingRecords = getExceedingRecords(records);
+                    const exceedingRecords = getExceedingRecords(records, PM10_THRESHOLD);
                     let exceedMessage = exceedingRecords.length > 0 
                         ? `24 小時內超過閾值的記錄如下：\n${exceedingRecords.join('\n')}` 
                         : '24 小時內沒有超過閾值的記錄。';
@@ -436,7 +436,7 @@ async function generateRecordFile(records) {
         const station185 = record.station_185 ? `${record.station_185} μg/m³` : '無資料';
         
         // 每一行的格式為 "時間 - 理虹(184): station_184數值 / 理虹(185): station_185數值"
-        fileContent += `${timestamp} - 理虹(184): ${station184} / 理虹(185): ${station185}\n`;
+        fileContent += `${timestamp} - 184堤外: ${station184} / 185堤上: ${station185}\n`;
     });
 
     // 檢查 records 目錄是否存在，不存在則創建
@@ -453,7 +453,7 @@ async function generateRecordFile(records) {
 }
 
 // 查詢超過閾值的記錄
-function getExceedingRecords(records) {
+function getExceedingRecords(records, PM10_THRESHOLD) {
     let exceedingRecords = [];
 
     records.forEach(record => {
