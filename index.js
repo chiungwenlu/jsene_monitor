@@ -167,20 +167,39 @@ async function scrapeData() {
   }
 }
 
-// 廣播訊息給所有使用者
-async function broadcastMessage(message) {
+// 廣播訊息給所有使用者，包含指數退避和抖動重試機制
+async function broadcastMessage(message, retries = 5) {
   console.log(`廣播發送中: ${message}`);
-  client.broadcast({
-    type: 'text',
-    text: message
-  })
-  .then(() => {
-    console.log('廣播訊息已成功發送');
-  })
-  .catch((err) => {
-    console.error('發送廣播訊息時發生錯誤:', err);
-  });
-};
+  let delay = 1000;  // 初始等待時間 1 秒
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      await client.broadcast({
+        type: 'text',
+        text: message
+      });
+      console.log('廣播訊息已成功發送');
+      return;  // 成功發送後結束函數
+    } catch (err) {
+      if (err.statusCode === 429 && i < retries - 1) {
+        // 429 錯誤，開始重試
+        console.log(`限流錯誤，重試第 ${i + 1} 次...`);
+
+        // 加入抖動，隨機化等待時間
+        const jitter = Math.random() * delay;
+        await new Promise(resolve => setTimeout(resolve, delay + jitter));
+
+        // 指數退避，等待時間加倍
+        delay *= 2;
+      } else {
+        // 若非 429 錯誤，或重試次數已達上限，則報告錯誤
+        console.error('發送廣播訊息時發生錯誤:', err);
+        break;  // 終止重試
+      }
+    }
+  }
+}
+
 
 // 處理所有事件
 app.post('/webhook', async (req, res) => {
