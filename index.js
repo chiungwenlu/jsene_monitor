@@ -331,8 +331,8 @@ app.post('/webhook', async (req, res) => {
                     // 將超過閾值的記錄發送給使用者
                     const exceedingRecords = getExceedingRecords(records, PM10_THRESHOLD);
                     let exceedMessage = exceedingRecords.length > 0 
-                        ? `24 小時內超過閾值的記錄如下：\n${exceedingRecords.join('\n')}` 
-                        : '24 小時內沒有超過閾值的記錄。';
+                        ? `24 小時內超過閾值 ${PM10_THRESHOLD} 的記錄如下：\n${exceedingRecords.join('\n')}` 
+                        : `24 小時內沒有超過閾值 ${PM10_THRESHOLD} 的記錄。`;
 
                     // 回應使用者並提供下載連結
                     await client.replyMessage(event.replyToken, {
