@@ -47,7 +47,7 @@ async function getSettings() {
         await thresholdRef.set(threshold);
         console.log(`PM10_THRESHOLD 不存在，已自動設為預設值: ${threshold}`);
     } else {
-        console.log(`PM10_THRESHOLD from Firebase: ${threshold}`);
+        console.log(`從 Firebase 獲取的 PM10_THRESHOLD: ${threshold}`);
     }
 
     // 讀取 SCRAPE_INTERVAL
@@ -215,7 +215,6 @@ async function scrapeData() {
                 station_185: result.station_185 || null
             });
             console.log('數據已保存到 Firebase:', result);
-            console.log('閾值:', PM10_THRESHOLD);
         }
 
         let alertMessages = [];
@@ -243,6 +242,72 @@ async function scrapeData() {
         await browser.close();
         return result;
     }
+}
+
+// Webhook 接收事件處理
+app.post('/webhook', line.middleware(config), async (req, res) => {
+    const events = req.body.events;
+
+    // 處理所有接收到的事件
+    events.forEach(async (event) => {
+        // 確認事件類型為 message 且訊息為文字
+        if (event.type === 'message' && event.message.type === 'text') {
+            const userMessage = event.message.text;
+
+            // 當使用者發送 "即時查詢" 訊息時
+            if (userMessage === '即時查詢') {
+                try {
+                    // 從 Firebase 取得最近的 PM10 資料
+                    const recentPM10Data = await getLatestPM10Data();
+                    const replyMessage = formatPM10ReplyMessage(recentPM10Data);
+
+                    // 回應使用者
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: replyMessage
+                    });
+                } catch (error) {
+                    console.error('取得 PM10 資料時發生錯誤:', error);
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '抱歉，無法取得最新的 PM10 資料，請稍後再試。'
+                    });
+                }
+            }
+        }
+    });
+
+    // 回應 200 狀態碼，告知 LINE 接收成功
+    res.status(200).end();
+});
+
+// 從 Firebase 取得最新的 PM10 資料
+async function getLatestPM10Data() {
+    const recordsRef = db.ref('pm10_records');
+    const snapshot = await recordsRef.orderByKey().limitToLast(1).once('value');
+    
+    let latestData = null;
+    snapshot.forEach((childSnapshot) => {
+        latestData = childSnapshot.val();
+    });
+
+    return latestData;
+}
+
+// 格式化回傳的 PM10 訊息
+function formatPM10ReplyMessage(pm10Data) {
+    if (!pm10Data) {
+        return '目前沒有可用的 PM10 資料。';
+    }
+
+    const timestamp = moment(pm10Data.timestamp).format('YYYY年MM月DD日 HH:mm');
+    const station184 = pm10Data.station_184 || '無資料';
+    const station185 = pm10Data.station_185 || '無資料';
+
+    return `最近的 PM10 資料：\n` +
+           `時間：${timestamp}\n` +
+           `184堤外 PM10：${station184} μg/m³\n` +
+           `185堤上 PM10：${station185} μg/m³`;
 }
 
 // 發送廣播訊息
@@ -273,6 +338,24 @@ async function scheduleTaskAtIntervals(task) {
 }
 
 scheduleTaskAtIntervals(scrapeData);
+
+// 設置 ping 路由接收 pinger-app 的請求
+app.post('/ping', (req, res) => {
+    console.log('來自 pinger-app 的訊息:', req.body);
+    res.json({ message: 'pong' });
+});
+
+// 每5分鐘發送一次請求給pinger-app
+function sendPing() {
+axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
+    .then(response => {
+    console.log('來自 pinger-app 的回應:', response.data);
+    })
+    .catch(error => {
+    console.error('Error pinging pinger-app:', error);
+    });
+}
+setInterval(sendPing, 5 * 60 * 1000);
 
 app.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`);
