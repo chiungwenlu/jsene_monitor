@@ -17,6 +17,12 @@ moment.tz.setDefault("Asia/Taipei");
 // 解析 JSON 請求
 app.use(express.json());
 
+// 設置LINE Messaging API客戶端的配置
+const config = {
+    channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    channelSecret: process.env.LINE_CHANNEL_SECRET
+};
+
 // 設置 LINE 客戶端
 const client = new line.Client(config);
 
@@ -238,7 +244,6 @@ async function scrapeData() {
         return result;
     }
 }
-
 
 // 發送廣播訊息
 async function broadcastMessage(message) {
