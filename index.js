@@ -72,6 +72,9 @@ async function generateRecordFile(dailyRecords, sortedDates) {
   return filePath;
 }
 
+let lastAlertTime = 0;  // 記錄上一次警告的時間
+const ALERT_INTERVAL = 60 * 60 * 1000;  // 1 小時的警告間隔
+
 async function scrapeData() {
   const browser = await puppeteer.launch({
     args: [
@@ -140,23 +143,29 @@ async function scrapeData() {
 
     // 檢查是否超過閾值，並發送警告及廣播
     let alertMessages = [];
-    if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
-      const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${result.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
-      console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
-      alertMessages.push(alertMessage184);
-    }
+    const now = Date.now();
+    if (now - lastAlertTime > ALERT_INTERVAL) {  // 確保至少1小時才發一次廣播
+      if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
+        const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${result.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+        console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
+        alertMessages.push(alertMessage184);
+      }
 
-    if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
-      const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${result.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
-      console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-      alertMessages.push(alertMessage185);
-    }
+      if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
+        const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${result.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
+        console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
+        alertMessages.push(alertMessage185);
+      }
 
-    // 如果有任何警告訊息，則將它們合併並進行廣播
-    if (alertMessages.length > 0) {
-      const combinedAlertMessage = alertMessages.join('\n');
-      await broadcastMessage(combinedAlertMessage);
-      result.alertSent = true; // 如果發送了警示，設置 alertSent 為 true
+      // 如果有任何警告訊息，則進行廣播
+      if (alertMessages.length > 0) {
+        const combinedAlertMessage = alertMessages.join('\n');
+        await broadcastMessage(combinedAlertMessage);
+        result.alertSent = true;
+        lastAlertTime = now;  // 更新上次廣播的時間
+      }
+    } else {
+      console.log('1小時內已發送過警告，跳過廣播。');
     }
 
   } catch (error) {
