@@ -479,5 +479,4 @@ setInterval(deleteOldRecords, 60 * 60 * 1000); // 每小時執行一次
 
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
-  scrapeData();        // 啟動伺服器後抓取數據  
 });
