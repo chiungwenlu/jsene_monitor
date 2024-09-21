@@ -149,7 +149,7 @@ async function scrapeData() {
     if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
       const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${result.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
       console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-      alertMessages.push(alertMessage184);
+      alertMessages.push(alertMessage185);
     }
 
     // 如果有任何警告訊息，則將它們合併並進行廣播
