@@ -428,24 +428,28 @@ async function get24HourRecords() {
 
 // 生成 24hr_record.txt 並返回檔案路徑
 async function generateRecordFile(records) {
-    let fileContent = '時間, 184 堤外 PM10, 185 堤上 PM10\n';
+    let fileContent = ''; // 初始化內容
 
     records.forEach(record => {
-        const timestamp = moment(record.timestamp).format('YYYY年MM月DD日 HH:mm');
-        const station184 = record.station_184 || '無資料';
-        const station185 = record.station_185 || '無資料';
-        fileContent += `${timestamp}, ${station184}, ${station185}\n`;
+        const timestamp = moment(record.timestamp).format('YYYY/MM/DD HH:mm');
+        const station184 = record.station_184 ? `${record.station_184} μg/m³` : '無資料';
+        const station185 = record.station_185 ? `${record.station_185} μg/m³` : '無資料';
+        
+        // 每一行的格式為 "時間 - 理虹(184): station_184數值 / 理虹(185): station_185數值"
+        fileContent += `${timestamp} - 理虹(184): ${station184} / 理虹(185): ${station185}\n`;
     });
 
+    // 檢查 records 目錄是否存在，不存在則創建
     const dir = path.join(__dirname, 'records');
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
 
+    // 寫入檔案
     const filePath = path.join(dir, '24hr_record.txt');
     fs.writeFileSync(filePath, fileContent, 'utf8');
 
-    return filePath;
+    return filePath; // 返回檔案路徑
 }
 
 // 查詢超過閾值的記錄
