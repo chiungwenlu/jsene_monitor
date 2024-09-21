@@ -321,6 +321,9 @@ app.post('/webhook', async (req, res) => {
                 try {
                     // 從 Firebase 取得 24 小時內的記錄
                     const records = await get24HourRecords();
+
+                    // 取得設定中的 PM10 閾值
+                    const { threshold: PM10_THRESHOLD } = await getSettings();
                     
                     // 生成文字檔 24hr_record.txt
                     const filePath = await generateRecordFile(records);
