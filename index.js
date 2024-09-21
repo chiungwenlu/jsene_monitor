@@ -139,20 +139,23 @@ async function scrapeData() {
     }
 
     // 檢查是否超過閾值，並發送警告及廣播
+    let alertMessages = [];
     if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
       const alertMessage184 = `理虹(184) PM10 濃度即時數據為 ${result.station_184} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
       console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
-      
-      // 廣播警告訊息
-      await broadcastMessage(alertMessage184);
+      alertMessages.push(alertMessage184);
     }
 
     if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
       const alertMessage185 = `理虹(185) PM10 濃度即時數據為 ${result.station_185} μg/m³，已超過 ${PM10_THRESHOLD} μg/m³，請立即啟動抑制措施！`;
       console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-      
-      // 廣播警告訊息
-      await broadcastMessage(alertMessage185);
+      alertMessages.push(alertMessage184);
+    }
+
+    // 如果有任何警告訊息，則將它們合併並進行廣播
+    if (alertMessages.length > 0) {
+      const combinedAlertMessage = alertMessages.join('\n');
+      await broadcastMessage(combinedAlertMessage);
     }
 
   } catch (error) {
