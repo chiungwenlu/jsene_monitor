@@ -86,7 +86,7 @@ async function scrapeData() {
         : puppeteer.executablePath(),
   });
 
-  let result = { station_184: null, station_185: null };
+  let result = { station_184: null, station_185: null, alertSent: false }; // 新增 alertSent 標誌
 
   try {
     const page = await browser.newPage();
@@ -156,6 +156,7 @@ async function scrapeData() {
     if (alertMessages.length > 0) {
       const combinedAlertMessage = alertMessages.join('\n');
       await broadcastMessage(combinedAlertMessage);
+      result.alertSent = true; // 如果發送了警示，設置 alertSent 為 true
     }
 
   } catch (error) {
@@ -349,30 +350,35 @@ app.post('/webhook', async (req, res) => {
       // 即時查詢 PM10 數據
       if (userMessage === '即時查詢') {
         console.log('執行即時查詢');
-
+      
         // 調用 scrapeData 函數進行即時查詢
         const currentData = await scrapeData();
-
-        // 構建查詢結果的回覆訊息
-        let messageText = '即時 PM10 數據：\n';
-        if (currentData.station_184) {
-          messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
+      
+        // 檢查是否已經發送了警示
+        if (currentData.alertSent) {
+          console.log('已發送警示，跳過訊息回覆');
         } else {
-          messageText += '理虹(184): 無法取得數據\n';
+          // 構建查詢結果的回覆訊息
+          let messageText = '即時 PM10 數據：\n';
+          if (currentData.station_184) {
+            messageText += `理虹(184): ${currentData.station_184} μg/m³\n`;
+          } else {
+            messageText += '理虹(184): 無法取得數據\n';
+          }
+          if (currentData.station_185) {
+            messageText += `理虹(185): ${currentData.station_185} μg/m³\n`;
+          } else {
+            messageText += '理虹(185): 無法取得數據\n';
+          }
+      
+          // 回覆訊息給用戶
+          await client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: messageText
+          });
+      
+          console.log('即時查詢結果已發送');
         }
-        if (currentData.station_185) {
-          messageText += `理虹(185): ${currentData.station_185} μg/m³\n`;
-        } else {
-          messageText += '理虹(185): 無法取得數據\n';
-        }
-
-        // 回覆訊息給用戶
-        await client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: messageText
-        });
-
-        console.log('即時查詢結果已發送');
       }
 
       // 檢查是否以 "廣播" 開頭
