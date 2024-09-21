@@ -327,6 +327,12 @@ app.post('/webhook', async (req, res) => {
           replyMessage = `24小時內沒有超過 ${PM10_THRESHOLD} μg/m³ 的記錄。\n\n` + replyMessage;
         }
 
+        // 檢查訊息字數是否超過 300 字
+        const MAX_LENGTH = 300;
+        if (replyMessage.length > MAX_LENGTH) {
+          replyMessage = replyMessage.slice(0, MAX_LENGTH) + "...資料過多，請點擊24小時記錄查詢。";
+        }
+
         // 發送訊息包含超過閾值的記錄及下載連結
         await client.replyMessage(event.replyToken, [
           {
