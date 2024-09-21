@@ -368,6 +368,23 @@ app.post('/webhook', async (req, res) => {
 
         console.log('即時查詢結果已發送');
       }
+
+      // 檢查是否以 "廣播" 開頭
+      if (userMessage.startsWith('廣播')) {
+        const broadcastMessageText = userMessage;
+        console.log('收到廣播請求，訊息內容:', broadcastMessageText);
+
+        // 廣播訊息
+        await broadcastMessage(broadcastMessageText);
+
+        // 回覆使用者廣播已發送
+        await client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '廣播訊息已發送給所有使用者。'
+        });
+        continue;
+      }
+
     }
   }
   res.status(200).end();
