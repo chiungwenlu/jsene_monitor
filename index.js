@@ -135,6 +135,7 @@ async function scrapeData() {
         station_185: result.station_185 || null
       });
       console.log('數據已保存到 Firebase:', result);
+      console.log('閾值:', PM10_THRESHOLD);
     }
 
     // 檢查是否超過閾值，並發送警告及廣播
