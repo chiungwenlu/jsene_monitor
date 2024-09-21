@@ -159,6 +159,45 @@ function formatAlertMessage(station, stationName, pm10Value, threshold) {
     return `【${stationName}PM10濃度於${currentTime}達到${pm10Value}≧${threshold}μg/m3，請啟動水線抑制揚塵】`;
 }
 
+// 保存新資料到 Firebase
+async function savePM10DataAndCleanup(pm10Data) {
+    const dataRef = db.ref('pm10_records').push();
+    
+    // 保存新資料
+    await dataRef.set({
+        timestamp: moment().valueOf(),
+        station_184: pm10Data.station_184 || null,
+        station_185: pm10Data.station_185 || null
+    });
+
+    console.log('新數據已保存到 Firebase:', pm10Data);
+
+    // 呼叫清理函數刪除超過 24 小時的舊資料
+    await cleanupOldPM10Records();
+}
+
+// 刪除超過 24 小時的 PM10 資料
+async function cleanupOldPM10Records() {
+    const currentTime = moment().valueOf(); // 取得當前時間的時間戳
+    const twentyFourHoursAgo = currentTime - (24 * 60 * 60 * 1000); // 計算 24 小時前的時間戳
+
+    const recordsRef = db.ref('pm10_records');
+
+    // 查詢 24 小時前的紀錄
+    const oldRecordsSnapshot = await recordsRef.orderByChild('timestamp').endAt(twentyFourHoursAgo).once('value');
+
+    const updates = {};
+
+    oldRecordsSnapshot.forEach((childSnapshot) => {
+        updates[childSnapshot.key] = null; // 將要刪除的記錄設為 null
+        console.log(`刪除超過 24 小時的記錄: ${childSnapshot.key}`);
+    });
+
+    // 刪除超過 24 小時的紀錄
+    await recordsRef.update(updates);
+    console.log('已刪除超過 24 小時的記錄');
+}
+
 // 抓取PM10數據
 async function scrapeData() {
     // 從 Firebase 獲取設置
@@ -211,13 +250,8 @@ async function scrapeData() {
         console.log('理虹(185) PM10 數據:', result.station_185);
 
         if (result.station_184 || result.station_185) {
-            const dataRef = db.ref('pm10_records').push();
-            await dataRef.set({
-                timestamp: moment().valueOf(),
-                station_184: result.station_184 || null,
-                station_185: result.station_185 || null
-            });
-            console.log('數據已保存到 Firebase:', result);
+            // 保存新資料並清理舊的資料
+            await savePM10DataAndCleanup(result);
         }
 
         let alertMessages = [];
@@ -280,6 +314,36 @@ app.post('/webhook', async (req, res) => {
                     });
                 }
             }
+
+            // 當使用者發送 "24小時記錄" 訊息時
+            if (userMessage === '24小時記錄') {
+                console.log('執行 24 小時記錄查詢');
+                try {
+                    // 從 Firebase 取得 24 小時內的記錄
+                    const records = await get24HourRecords();
+                    
+                    // 生成文字檔 24hr_record.txt
+                    const filePath = await generateRecordFile(records);
+                    
+                    // 將超過閾值的記錄發送給使用者
+                    const exceedingRecords = getExceedingRecords(records);
+                    let exceedMessage = exceedingRecords.length > 0 
+                        ? `24 小時內超過閾值的記錄如下：\n${exceedingRecords.join('\n')}` 
+                        : '24 小時內沒有超過閾值的記錄。';
+
+                    // 回應使用者並提供下載連結
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: `${exceedMessage}\n\n點擊以下連結下載 24 小時記錄：\n${req.protocol}://${req.get('host')}/download/24hr_record.txt`
+                    });
+                } catch (error) {
+                    console.error('取得 24 小時記錄時發生錯誤:', error);
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '抱歉，無法取得 24 小時記錄，請稍後再試。'
+                    });
+                }
+            }
         }
     };
 
@@ -310,8 +374,7 @@ function formatPM10ReplyMessage(pm10Data) {
     const station184 = pm10Data.station_184 || '無資料';
     const station185 = pm10Data.station_185 || '無資料';
 
-    return `最近的 PM10 資料：\n` +
-           `時間：${timestamp}\n` +
+    return `${timestamp}\n` +
            `184堤外 PM10：${station184} μg/m³\n` +
            `185堤上 PM10：${station185} μg/m³`;
 }
@@ -342,8 +405,70 @@ async function scheduleTaskAtIntervals(task) {
         setInterval(task, intervalMinutes * 60 * 1000);
     }, delay);
 }
-
 scheduleTaskAtIntervals(scrapeData);
+
+// 從 Firebase 取得 24 小時內的記錄
+async function get24HourRecords() {
+    const currentTime = moment().valueOf(); // 取得當前時間戳
+    const twentyFourHoursAgo = currentTime - (24 * 60 * 60 * 1000); // 計算 24 小時前的時間戳
+
+    const recordsRef = db.ref('pm10_records');
+    const snapshot = await recordsRef.orderByChild('timestamp').startAt(twentyFourHoursAgo).once('value');
+
+    let records = [];
+    snapshot.forEach(childSnapshot => {
+        records.push({
+            key: childSnapshot.key,
+            ...childSnapshot.val()
+        });
+    });
+
+    return records;
+}
+
+// 生成 24hr_record.txt 並返回檔案路徑
+async function generateRecordFile(records) {
+    let fileContent = '時間, 184 堤外 PM10, 185 堤上 PM10\n';
+
+    records.forEach(record => {
+        const timestamp = moment(record.timestamp).format('YYYY年MM月DD日 HH:mm');
+        const station184 = record.station_184 || '無資料';
+        const station185 = record.station_185 || '無資料';
+        fileContent += `${timestamp}, ${station184}, ${station185}\n`;
+    });
+
+    const dir = path.join(__dirname, 'records');
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const filePath = path.join(dir, '24hr_record.txt');
+    fs.writeFileSync(filePath, fileContent, 'utf8');
+
+    return filePath;
+}
+
+// 查詢超過閾值的記錄
+function getExceedingRecords(records) {
+    let exceedingRecords = [];
+
+    records.forEach(record => {
+        if (record.station_184 && parseInt(record.station_184) > PM10_THRESHOLD) {
+            exceedingRecords.push(`184堤外 PM10: ${record.station_184} μg/m³ (超過閾值)`);
+        }
+        if (record.station_185 && parseInt(record.station_185) > PM10_THRESHOLD) {
+            exceedingRecords.push(`185堤上 PM10: ${record.station_185} μg/m³ (超過閾值)`);
+        }
+    });
+
+    return exceedingRecords;
+}
+
+// 設置提供下載文字檔的路由
+app.get('/download/24hr_record.txt', (req, res) => {
+    const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+    res.download(filePath);
+});
 
 // 設置 ping 路由接收 pinger-app 的請求
 app.post('/ping', (req, res) => {
