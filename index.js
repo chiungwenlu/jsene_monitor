@@ -22,8 +22,8 @@ const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-console.log(`LINE_CHANNEL_ACCESS_TOKEN: ${channelAccessToken}`);
-console.log(`LINE_CHANNEL_SECRET: ${channelSecret}`);
+console.log(`LINE_CHANNEL_ACCESS_TOKEN: ${config.channelAccessToken}`);
+console.log(`LINE_CHANNEL_SECRET: ${config.channelSecret}`);
 
 
 // 設置 LINE 客戶端
