@@ -371,7 +371,7 @@ app.post('/webhook', async (req, res) => {
 
             // 當使用者發送「廣播」開頭的訊息時
             if (userMessage.startsWith('廣播')) {
-                const broadcastMessage = userMessage; // 廣播的訊息
+                const broadcastMessage = userMessage;
                 console.log('廣播訊息:', broadcastMessage);
 
                 try {
@@ -389,24 +389,27 @@ app.post('/webhook', async (req, res) => {
                         return;
                     }
 
-                    // 將訊息發送給每一個使用者
-                    const promises = [];
-                    Object.keys(users).forEach(userId => {
-                        const userName = users[userId].name || '使用者';
-                        console.log(`正在發送訊息給: ${userName} (${userId})`);
+                    // 提取所有 userId
+                    const userIds = Object.keys(users);
+                    const batchSize = 500; // 每批最多 500 個
 
-                        // 發送訊息給指定的使用者
-                        promises.push(client.pushMessage(userId, {
+                    // 將訊息按批次發送
+                    for (let i = 0; i < userIds.length; i += batchSize) {
+                        const batchUserIds = userIds.slice(i, i + batchSize); // 取得當前批次的 userIds
+
+                        // 使用 multicast 發送訊息給該批次的使用者
+                        await client.multicast(batchUserIds, {
                             type: 'text',
                             text: broadcastMessage
-                        }));
-                    });
+                        });
 
-                    // 等待所有訊息發送完成
-                    await Promise.all(promises);
+                        console.log(`已發送廣播訊息給批次使用者 (${i + 1} - ${Math.min(i + batchSize, userIds.length)})`);
+
+                        // 延遲 500 毫秒，避免達到速率限制
+                        await delay(500);
+                    }
 
                     console.log('廣播訊息已成功發送給所有使用者。');
-                    // 回應發送者確認訊息已廣播
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
                         text: '已廣播訊息給所有使用者。'
@@ -454,6 +457,11 @@ function formatPM10ReplyMessage(pm10Data) {
     return `${timestamp}\n` +
            `184堤外 PM10：${station184} μg/m³\n` +
            `185堤上 PM10：${station185} μg/m³`;
+}
+
+// 延遲函數
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // 發送廣播訊息
