@@ -429,32 +429,18 @@ function delay(ms) {
 
 // 發送廣播訊息
 async function broadcastMessage(message) {
-    try {
-        // 從 Firebase 讀取所有 users 節點中的使用者資料
-        const usersRef = db.ref('users');
-        const usersSnapshot = await usersRef.once('value');
-        const users = usersSnapshot.val();
-
-        if (!users) {
-            console.log('沒有找到任何使用者資料。');
-            return;
-        }
-
-        const promises = [];
-        // 提取所有 userId 並將每個 pushMessage 的 Promise 加入 promises 陣列
-        usersSnapshot.forEach(childSnapshot => {
-            const targetUserId = childSnapshot.key;
-            promises.push(client.pushMessage(targetUserId, { type: 'text', text: message }));
-        });
-
-        // 並行發送所有訊息
-        await Promise.all(promises);
-
-        console.log('廣播訊息已成功發送給所有使用者。');
-    } catch (error) {
-        console.error('廣播訊息發送失敗:', error);
-    }
-}
+    console.log(`廣播發送中: ${message}`);
+    client.broadcast({
+      type: 'text',
+      text: message
+    })
+    .then(() => {
+      console.log('廣播訊息已成功發送');
+    })
+    .catch((err) => {
+      console.error('發送廣播訊息時發生錯誤:', err);
+    });
+  };
 
 
 // 定時抓取任務
