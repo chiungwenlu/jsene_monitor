@@ -371,45 +371,14 @@ app.post('/webhook', async (req, res) => {
 
             // 當使用者發送「廣播」開頭的訊息時
             if (userMessage.startsWith('廣播')) {
-                const broadcastMessage = userMessage;
-                console.log('廣播訊息:', broadcastMessage);
+                const broadcastMessageContent = userMessage; // 取得廣播的內容
+                console.log('開始進行廣播:', broadcastMessageContent);
 
                 try {
-                    // 從 Firebase 讀取所有 users 節點中的使用者資料
-                    const usersRef = db.ref('users');
-                    const usersSnapshot = await usersRef.once('value');
-                    const users = usersSnapshot.val();
+                    // 發送廣播訊息給所有使用者
+                    await broadcastMessage(broadcastMessageContent);
 
-                    if (!users) {
-                        console.log('沒有找到任何使用者資料。');
-                        await client.replyMessage(event.replyToken, {
-                            type: 'text',
-                            text: '沒有找到任何使用者資料，無法發送廣播訊息。'
-                        });
-                        return;
-                    }
-
-                    // 提取所有 userId
-                    const userIds = Object.keys(users);
-                    const batchSize = 500; // 每批最多 500 個
-
-                    // 將訊息按批次發送
-                    for (let i = 0; i < userIds.length; i += batchSize) {
-                        const batchUserIds = userIds.slice(i, i + batchSize); // 取得當前批次的 userIds
-
-                        // 使用 multicast 發送訊息給該批次的使用者
-                        await client.multicast(batchUserIds, {
-                            type: 'text',
-                            text: broadcastMessage
-                        });
-
-                        console.log(`已發送廣播訊息給批次使用者 (${i + 1} - ${Math.min(i + batchSize, userIds.length)})`);
-
-                        // 延遲 500 毫秒，避免達到速率限制
-                        await delay(500);
-                    }
-
-                    console.log('廣播訊息已成功發送給所有使用者。');
+                    // 回應發送者確認訊息已廣播
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
                         text: '已廣播訊息給所有使用者。'
@@ -467,11 +436,33 @@ function delay(ms) {
 // 發送廣播訊息
 async function broadcastMessage(message) {
     try {
-        await client.broadcast({
-            type: 'text',
-            text: message
-        });
-        console.log('廣播訊息成功發送:', message);
+        // 從 Firebase 讀取所有 users 節點中的使用者資料
+        const usersRef = db.ref('users');
+        const usersSnapshot = await usersRef.once('value');
+        const users = usersSnapshot.val();
+
+        if (!users) {
+            console.log('沒有找到任何使用者資料。');
+            return;
+        }
+
+        // 提取所有 userId
+        const userIds = Object.keys(users);
+
+        // 將訊息逐一發送給每個使用者
+        for (const userId of userIds) {
+            await client.pushMessage(userId, {
+                type: 'text',
+                text: message
+            });
+
+            console.log(`已發送廣播訊息給使用者: ${userId}`);
+
+            // 延遲 100 毫秒，避免速率限制
+            await delay(100);
+        }
+
+        console.log('廣播訊息已成功發送給所有使用者。');
     } catch (error) {
         console.error('廣播訊息發送失敗:', error);
     }
