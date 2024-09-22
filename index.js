@@ -117,6 +117,16 @@ async function getSettings() {
     };
 }
 
+// 儲存使用者資料到 Firebase
+function saveUserProfile(userId, userName) {
+  db.ref(`users/${userId}`).update({
+    id: userId,
+    name: userName
+  }).catch(error => {
+    console.error('儲存使用者資料發生錯誤:', error);
+  });
+}
+
 // 保存登入會話 cookies
 async function loginAndSaveCookies(page, accountName, accountPassword, isReLogin = false) {
     await page.goto('https://www.jsene.com/juno/Login.aspx');
@@ -179,7 +189,7 @@ async function savePM10DataAndCleanup(pm10Data) {
 // 刪除超過 24 小時的 PM10 資料
 async function cleanupOldPM10Records() {
     const currentTime = moment().valueOf(); // 取得當前時間的時間戳
-    const twentyFourHoursAgo = currentTime - (24 * 60 * 60 * 1000); // 計算 24 小時前的時間戳
+    const twentyFourHoursAgo = currentTime - (24 * 60 * 60 * 1000);
 
     const recordsRef = db.ref('pm10_records');
 
@@ -189,11 +199,15 @@ async function cleanupOldPM10Records() {
     const updates = {};
 
     oldRecordsSnapshot.forEach((childSnapshot) => {
-        updates[childSnapshot.key] = null; // 將要刪除的記錄設為 null
-        console.log(`刪除超過 24 小時的記錄: ${childSnapshot.key}`);
+        const recordData = childSnapshot.val();
+        const recordTimestamp = recordData.timestamp;
+        const formattedTime = moment(recordTimestamp).format('YYYY年MM月DD日 HH:mm');
+
+        updates[childSnapshot.key] = null;
+
+        console.log(`刪除記錄: ${formattedTime}\n${childSnapshot.key} `);
     });
 
-    // 刪除超過 24 小時的紀錄
     await recordsRef.update(updates);
     console.log('已刪除超過 24 小時的記錄');
 }
@@ -286,12 +300,19 @@ app.post('/webhook', async (req, res) => {
     const events = req.body.events;
   
     if (!events || events.length === 0) {
-      return res.status(200).send("No events to process.");
+        return res.status(200).send("No events to process.");
     }
   
     for (const event of events) {
-      if (event.type === 'message' && event.message.type === 'text') {
-        const userMessage = event.message.text.trim();
+        if (event.type === 'message' && event.message.type === 'text') {
+            const userMessage = event.message.text.trim();
+            const userId = event.source.userId;  // 取得發送訊息的用戶 ID
+
+            client.getProfile(userId).then(profile => {
+                const userName = profile.displayName;  // 取得用戶名
+                // 儲存使用者資料到 Firebase
+                saveUserProfile(userId, userName);
+            });
 
             // 當使用者發送 "即時查詢" 訊息時
             if (userMessage === '即時查詢') {
@@ -350,22 +371,47 @@ app.post('/webhook', async (req, res) => {
 
             // 當使用者發送「廣播」開頭的訊息時
             if (userMessage.startsWith('廣播')) {
-                const broadcastMessage = userMessage; // 直接將訊息廣播
+                const broadcastMessage = userMessage; // 廣播的訊息
                 console.log('廣播訊息:', broadcastMessage);
 
                 try {
-                    // 發送廣播訊息給所有使用者
-                    await client.broadcast({
-                        type: 'text',
-                        text: broadcastMessage
-                    });
-                    console.log('廣播訊息成功發送:', broadcastMessage);
+                    // 從 Firebase 讀取所有 users 節點中的使用者資料
+                    const usersRef = db.ref('users');
+                    const usersSnapshot = await usersRef.once('value');
+                    const users = usersSnapshot.val();
 
+                    if (!users) {
+                        console.log('沒有找到任何使用者資料。');
+                        await client.replyMessage(event.replyToken, {
+                            type: 'text',
+                            text: '沒有找到任何使用者資料，無法發送廣播訊息。'
+                        });
+                        return;
+                    }
+
+                    // 將訊息發送給每一個使用者
+                    const promises = [];
+                    Object.keys(users).forEach(userId => {
+                        const userName = users[userId].name || '使用者';
+                        console.log(`正在發送訊息給: ${userName} (${userId})`);
+
+                        // 發送訊息給指定的使用者
+                        promises.push(client.pushMessage(userId, {
+                            type: 'text',
+                            text: broadcastMessage
+                        }));
+                    });
+
+                    // 等待所有訊息發送完成
+                    await Promise.all(promises);
+
+                    console.log('廣播訊息已成功發送給所有使用者。');
                     // 回應發送者確認訊息已廣播
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
                         text: '已廣播訊息給所有使用者。'
                     });
+
                 } catch (error) {
                     console.error('廣播訊息發送失敗:', error);
                     await client.replyMessage(event.replyToken, {
@@ -374,6 +420,7 @@ app.post('/webhook', async (req, res) => {
                     });
                 }
             }
+
         }
     };
 
