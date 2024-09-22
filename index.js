@@ -435,14 +435,10 @@ async function broadcastMessage(message) {
         const users = usersSnapshot.val();
 
         // 查詢當前帳戶剩餘的訊息發送配額
-        client.getMessageQuota().then((result) => {
-            console.log(`帳戶剩餘的訊息發送配額: ${result}`);
-        });
-        
+        await getMessageQuota();
+
         // 查詢當前帳戶已經使用的訊息發送數量，監控發送速率
-        client.getMessageQuotaConsumption().then((result) => {
-            console.log(`帳戶已經使用的訊息發送數量: ${result}`);
-        });
+        await getMessageQuotaConsumption();
 
         // if (!users) {
         //     console.log('沒有找到任何使用者資料。');
@@ -466,6 +462,35 @@ async function broadcastMessage(message) {
         console.log('廣播訊息已成功發送給所有使用者。');
     } catch (error) {
         console.error('發送廣播訊息時發生錯誤:', error);
+    }
+}
+
+
+// 查詢當前帳戶剩餘的訊息發送配額
+async function getMessageQuota() {
+    try {
+        const response = await axios.get('https://api.line.me/v2/bot/message/quota', {
+            headers: {
+                'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+            }
+        });
+        console.log('帳戶剩餘的訊息發送配額:', response.data);
+    } catch (error) {
+        console.error('查詢訊息配額失敗:', error);
+    }
+}
+
+// 查詢已使用的訊息發送數量
+async function getMessageQuotaConsumption() {
+    try {
+        const response = await axios.get('https://api.line.me/v2/bot/message/quota/consumption', {
+            headers: {
+                'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+            }
+        });
+        console.log('帳戶已經使用的訊息發送數量:', response.data);
+    } catch (error) {
+        console.error('查詢訊息消耗失敗:', error);
     }
 }
 
