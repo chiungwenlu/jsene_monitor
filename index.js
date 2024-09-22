@@ -99,14 +99,14 @@ async function getSettings() {
     const recordsRef = db.ref('pm10_records');
     const snapshot = await recordsRef.once('value');
 
-    // 檢查節點是否存在，若不存在則建立
-    if (!snapshot.exists()) {
-        console.log('pm10_records 節點不存在，將自動創建');
-        await recordsRef.set({});
-        console.log('pm10_records 節點已創建');
-    } else {
-        console.log('pm10_records 節點已存在');
-    }
+    // 檢查節點是否存在，若不存在則建立 -> Firebase會自動建立節點
+    // if (!snapshot.exists()) {
+    //     console.log('pm10_records 節點不存在，將自動創建');
+    //     await recordsRef.set({});
+    //     console.log('pm10_records 節點已創建');
+    // } else {
+    //     console.log('pm10_records 節點已存在');
+    // }
 
     // 回傳所有設置
     return {
@@ -429,18 +429,45 @@ function delay(ms) {
 
 // 發送廣播訊息
 async function broadcastMessage(message) {
-    console.log(`廣播發送中: ${message}`);
-    client.broadcast({
-      type: 'text',
-      text: message
-    })
-    .then(() => {
-      console.log('廣播訊息已成功發送');
-    })
-    .catch((err) => {
-      console.error('發送廣播訊息時發生錯誤:', err);
-    });
-  };
+    try {
+        const usersRef = db.ref('users');
+        const usersSnapshot = await usersRef.once('value');
+        const users = usersSnapshot.val();
+
+        // 查詢當前帳戶剩餘的訊息發送配額
+        client.getMessageQuota().then((result) => {
+            console.log(`帳戶剩餘的訊息發送配額: ${result}`);
+        });
+        
+        // 查詢當前帳戶已經使用的訊息發送數量，監控發送速率
+        client.getMessageQuotaConsumption().then((result) => {
+            console.log(`帳戶已經使用的訊息發送數量: ${result}`);
+        });
+
+        // if (!users) {
+        //     console.log('沒有找到任何使用者資料。');
+        //     return;
+        // }
+
+        //const userIds = Object.keys(users);
+        const userId = 'U9e1f7bc40a1f54bcbd21c82493640583';
+        //console.log(`正在向 ${userIds.length} 位使用者發送訊息`);
+        console.log(`正在向 ${userId} 發送訊息`);
+
+        //for (const userId of userIds) {
+            //await client.pushMessage(userId, { type: 'text', text: message });
+            await client.pushMessage(userId, { type: 'text', text: message });
+            console.log(`已發送訊息給使用者: ${userId}`);
+
+            // 加入短延遲，避免觸發限速
+            //await delay(500);  // 每發送完一個訊息，等待500毫秒
+        //}
+
+        console.log('廣播訊息已成功發送給所有使用者。');
+    } catch (error) {
+        console.error('發送廣播訊息時發生錯誤:', error);
+    }
+}
 
 
 // 定時抓取任務
