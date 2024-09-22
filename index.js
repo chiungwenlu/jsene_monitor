@@ -601,8 +601,8 @@ app.get('/api/real-time-query', async (req, res) => {
 // 提供 Mobile 24 小時記錄的 API
 app.get('/api/records', async (req, res) => {
     try {
-        // 使用現有的 get24HourPM10Records 函數
-        const records = await get24HourPM10Records();
+        // 使用現有的 get24HourRecords 函數
+        const records = await get24HourRecords();
         
         // 返回獲取的 24 小時數據給前端
         res.json(records);
