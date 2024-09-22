@@ -347,6 +347,33 @@ app.post('/webhook', async (req, res) => {
                     });
                 }
             }
+
+            // 當使用者發送「廣播」開頭的訊息時
+            if (userMessage.startsWith('廣播')) {
+                const broadcastMessage = userMessage; // 直接將訊息廣播
+                console.log('廣播訊息:', broadcastMessage);
+
+                try {
+                    // 發送廣播訊息給所有使用者
+                    await client.broadcast({
+                        type: 'text',
+                        text: broadcastMessage
+                    });
+                    console.log('廣播訊息成功發送:', broadcastMessage);
+
+                    // 回應發送者確認訊息已廣播
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '已廣播訊息給所有使用者。'
+                    });
+                } catch (error) {
+                    console.error('廣播訊息發送失敗:', error);
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '抱歉，廣播訊息發送失敗。'
+                    });
+                }
+            }
         }
     };
 
