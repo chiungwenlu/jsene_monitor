@@ -378,12 +378,6 @@ app.post('/webhook', async (req, res) => {
                     // 發送廣播訊息給所有使用者
                     await broadcastMessage(broadcastMessageContent);
 
-                    // 回應發送者確認訊息已廣播
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: '已廣播訊息給所有使用者。'
-                    });
-
                 } catch (error) {
                     console.error('廣播訊息發送失敗:', error);
                     await client.replyMessage(event.replyToken, {
@@ -446,27 +440,22 @@ async function broadcastMessage(message) {
             return;
         }
 
-        // 提取所有 userId
-        const userIds = Object.keys(users);
+        const promises = [];
+        // 提取所有 userId 並將每個 pushMessage 的 Promise 加入 promises 陣列
+        usersSnapshot.forEach(childSnapshot => {
+            const targetUserId = childSnapshot.key;
+            promises.push(client.pushMessage(targetUserId, { type: 'text', text: message }));
+        });
 
-        // 將訊息逐一發送給每個使用者
-        for (const userId of userIds) {
-            await client.pushMessage(userId, {
-                type: 'text',
-                text: message
-            });
-
-            console.log(`已發送廣播訊息給使用者: ${userId}`);
-
-            // 延遲 100 毫秒，避免速率限制
-            await delay(100);
-        }
+        // 並行發送所有訊息
+        await Promise.all(promises);
 
         console.log('廣播訊息已成功發送給所有使用者。');
     } catch (error) {
         console.error('廣播訊息發送失敗:', error);
     }
 }
+
 
 // 定時抓取任務
 async function scheduleTaskAtIntervals(task) {
