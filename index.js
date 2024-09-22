@@ -422,11 +422,6 @@ function formatPM10ReplyMessage(pm10Data) {
            `185堤上 PM10：${station185} μg/m³`;
 }
 
-// 延遲函數
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // 發送廣播訊息
 async function broadcastMessage(message) {
     try {
@@ -440,31 +435,24 @@ async function broadcastMessage(message) {
         // 查詢當前帳戶已經使用的訊息發送數量，監控發送速率
         await getMessageQuotaConsumption();
 
-        // if (!users) {
-        //     console.log('沒有找到任何使用者資料。');
-        //     return;
-        // }
+        if (!users) {
+            console.log('沒有找到任何使用者資料。');
+            return;
+        }
 
-        //const userIds = Object.keys(users);
-        const userId = 'U9e1f7bc40a1f54bcbd21c82493640583';
-        //console.log(`正在向 ${userIds.length} 位使用者發送訊息`);
-        console.log(`正在向 ${userId} 發送訊息`);
+        const userIds = Object.keys(users);
+        console.log(`正在向 ${userIds.length} 位使用者發送訊息`);
 
-        //for (const userId of userIds) {
-            //await client.pushMessage(userId, { type: 'text', text: message });
+        for (const userId of userIds) {
             await client.pushMessage(userId, { type: 'text', text: message });
             console.log(`已發送訊息給使用者: ${userId}`);
-
-            // 加入短延遲，避免觸發限速
-            //await delay(500);  // 每發送完一個訊息，等待500毫秒
-        //}
+        }
 
         console.log('廣播訊息已成功發送給所有使用者。');
     } catch (error) {
         console.error('發送廣播訊息時發生錯誤:', error);
     }
 }
-
 
 // 查詢當前帳戶剩餘的訊息發送配額
 async function getMessageQuota() {
@@ -571,6 +559,7 @@ function getExceedingRecords(records, PM10_THRESHOLD) {
     return exceedingRecords;
 }
 
+
 // 設置提供下載文字檔的路由
 app.get('/download/24hr_record.txt', (req, res) => {
     const filePath = path.join(__dirname, 'records', '24hr_record.txt');
@@ -594,6 +583,34 @@ axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
     });
 }
 setInterval(sendPing, 5 * 60 * 1000);
+
+// 提供 Mobile 即時查詢的 API
+app.get('/api/real-time-query', async (req, res) => {
+    try {
+        // 使用現有的 getLatestPM10Data 函數
+        const recentPM10Data = await getLatestPM10Data();
+        
+        // 返回獲取的即時數據給前端
+        res.json(recentPM10Data);
+    } catch (error) {
+        console.error('取得即時查詢資料時發生錯誤:', error);
+        res.status(500).json({ error: '無法取得即時查詢資料' });
+    }
+});
+
+// 提供 Mobile 24 小時記錄的 API
+app.get('/api/records', async (req, res) => {
+    try {
+        // 使用現有的 get24HourPM10Records 函數
+        const records = await get24HourPM10Records();
+        
+        // 返回獲取的 24 小時數據給前端
+        res.json(records);
+    } catch (error) {
+        console.error('取得 24 小時記錄時發生錯誤:', error);
+        res.status(500).json({ error: '無法取得 24 小時記錄' });
+    }
+});
 
 app.listen(PORT, () => {
     console.log(`Listening on port ${PORT}`);
