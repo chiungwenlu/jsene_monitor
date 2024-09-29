@@ -352,8 +352,8 @@ app.post('/webhook', async (req, res) => {
                     // 將超過閾值的記錄發送給使用者
                     const exceedingRecords = getExceedingRecords(records, PM10_THRESHOLD);
                     let exceedMessage = exceedingRecords.length > 0 
-                        ? `24 小時內超過閾值 ${PM10_THRESHOLD} 的記錄如下：\n${exceedingRecords.join('\n')}` 
-                        : `24 小時內沒有超過閾值 ${PM10_THRESHOLD} 的記錄。`;
+                        ? `24 小時內PM10超過閾值 ${PM10_THRESHOLD} 的記錄如下：\n${exceedingRecords.join('\n')}` 
+                        : `24 小時內PM10沒有超過閾值 ${PM10_THRESHOLD} 的記錄。`;
 
                     // 回應使用者並提供下載連結
                     await client.replyMessage(event.replyToken, {
@@ -518,7 +518,8 @@ async function get24HourRecords() {
 }
 
 // 生成 24hr_record.txt 並返回檔案路徑
-async function generateRecordFile(records) {
+async function generateRecordFile(records) {    
+    records.sort((a, b) => b.timestamp - a.timestamp);  // 先對記錄按照時間戳從新到舊排序
     let fileContent = ''; // 初始化內容
 
     records.forEach(record => {
@@ -551,10 +552,10 @@ function getExceedingRecords(records, PM10_THRESHOLD) {
         const timestamp = moment(record.timestamp).format('MM/DD HH:mm'); // 格式化時間戳
     
         if (record.station_184 && parseInt(record.station_184) > PM10_THRESHOLD) {
-            exceedingRecords.push(`${timestamp} - 184堤外 PM10: ${record.station_184} μg/m³ (超過閾值)`);
+            exceedingRecords.push(`${timestamp} - 184堤外: ${record.station_184} μg/m³`);
         }
         if (record.station_185 && parseInt(record.station_185) > PM10_THRESHOLD) {
-            exceedingRecords.push(`${timestamp} - 185堤上 PM10: ${record.station_185} μg/m³ (超過閾值)`);
+            exceedingRecords.push(`${timestamp} - 185堤上: ${record.station_185} μg/m³`);
         }
     });
 
