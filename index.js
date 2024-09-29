@@ -548,7 +548,7 @@ function getExceedingRecords(records, PM10_THRESHOLD) {
     let exceedingRecords = [];
 
     records.forEach(record => {
-        const timestamp = moment(record.timestamp).format('YYYY/MM/DD HH:mm'); // 格式化時間戳
+        const timestamp = moment(record.timestamp).format('MM/DD HH:mm'); // 格式化時間戳
     
         if (record.station_184 && parseInt(record.station_184) > PM10_THRESHOLD) {
             exceedingRecords.push(`${timestamp} - 184堤外 PM10: ${record.station_184} μg/m³ (超過閾值)`);
