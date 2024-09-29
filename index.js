@@ -548,11 +548,13 @@ function getExceedingRecords(records, PM10_THRESHOLD) {
     let exceedingRecords = [];
 
     records.forEach(record => {
+        const timestamp = moment(record.timestamp).format('YYYY/MM/DD HH:mm'); // 格式化時間戳
+    
         if (record.station_184 && parseInt(record.station_184) > PM10_THRESHOLD) {
-            exceedingRecords.push(`184堤外 PM10: ${record.station_184} μg/m³ (超過閾值)`);
+            exceedingRecords.push(`${timestamp} - 184堤外 PM10: ${record.station_184} μg/m³ (超過閾值)`);
         }
         if (record.station_185 && parseInt(record.station_185) > PM10_THRESHOLD) {
-            exceedingRecords.push(`185堤上 PM10: ${record.station_185} μg/m³ (超過閾值)`);
+            exceedingRecords.push(`${timestamp} - 185堤上 PM10: ${record.station_185} μg/m³ (超過閾值)`);
         }
     });
 
