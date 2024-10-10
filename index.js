@@ -352,6 +352,7 @@ app.post('/webhook', async (req, res) => {
                         const endTime = moment();  // 當前時間
                         const startDate = startTime.format('YYYY/MM/DD HH:mm');
                         const endDate = endTime.format('YYYY/MM/DD HH:mm');
+                        console.log(`資料抓取區間${startDate} ~ ${endDate}`);
 
                         // 4. 抓取時間間隔內的資料
                         const station184Data = await scrapeStationData('3100184', startDate, endDate);
