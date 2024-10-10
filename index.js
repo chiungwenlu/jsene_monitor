@@ -67,6 +67,11 @@ async function getSettings() {
         console.log(`從 Firebase 獲取的 SCRAPE_INTERVAL: ${intervalMinutes} 分鐘`);
     }
 
+    // 讀取警告間隔
+    const alertIntervalRef = db.ref('settings/ALERT_INTERVAL');
+    const alertIntervalSnapshot = await alertIntervalRef.once('value');
+    let alertInterval = alertIntervalSnapshot.val() || 59;
+
     // 讀取帳號
     const accountRef = db.ref('settings/ACCOUNT_NAME');
     const accountSnapshot = await accountRef.once('value');
@@ -112,9 +117,23 @@ async function getSettings() {
     return {
         intervalMinutes: parseInt(intervalMinutes),
         threshold: parseInt(threshold),
+        alertInterval: parseInt(alertInterval),
         accountName: accountName,
         accountPassword: accountPassword
     };
+}
+
+// 從 Firebase 取得上次發出警告的時間
+async function getLastAlertTime() {
+    const alertTimeRef = db.ref('settings/LAST_ALERT_TIME');
+    const snapshot = await alertTimeRef.once('value');
+    return snapshot.val();
+}
+
+// 更新上次發出警告的時間
+async function updateLastAlertTime(now) {
+    const alertTimeRef = db.ref('settings/LAST_ALERT_TIME');
+    await alertTimeRef.set(now.valueOf());
 }
 
 // 儲存使用者資料到 Firebase
@@ -298,106 +317,139 @@ async function scrapeData() {
 // Webhook 接收事件處理
 app.post('/webhook', async (req, res) => {
     const events = req.body.events;
-  
+
     if (!events || events.length === 0) {
         return res.status(200).send("No events to process.");
     }
-  
+
     for (const event of events) {
         if (event.type === 'message' && event.message.type === 'text') {
             const userMessage = event.message.text.trim();
-            const userId = event.source.userId;  // 取得發送訊息的用戶 ID
 
-            client.getProfile(userId).then(profile => {
-                const userName = profile.displayName;  // 取得用戶名
-                // 儲存使用者資料到 Firebase
-                saveUserProfile(userId, userName);
-            });
-
-            // 當使用者發送 "即時查詢" 訊息時
             if (userMessage === '即時查詢') {
                 console.log('執行即時查詢');
                 try {
-                    // 從 Firebase 取得最近的 PM10 資料
+                    // 1. 從 Firebase 取得最近一筆資料的時間
                     const recentPM10Data = await getLatestPM10Data();
-                    const replyMessage = formatPM10ReplyMessage(recentPM10Data);
+                    const lastEntryTime = recentPM10Data ? recentPM10Data.timestamp : null;
+                    const currentTime = moment().valueOf();  // 當前時間
 
-                    // 回應使用者
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: replyMessage
-                    });
+                    // 2. 計算時間差，若超過1分鐘則抓取新資料
+                    if (lastEntryTime && (currentTime - lastEntryTime > 1 * 60 * 1000)) {
+                        console.log('最近資料超過1分鐘，抓取新資料...');
+
+                        // 3. 設定抓取範圍，從 Firebase 最新資料的下一筆開始
+                        const startTime = moment(lastEntryTime).add(1, 'minute');
+                        const endTime = moment();  // 當前時間
+                        const startDate = startTime.format('YYYY/MM/DD HH:mm');
+                        const endDate = endTime.format('YYYY/MM/DD HH:mm');
+
+                        // 4. 抓取時間間隔內的資料
+                        const station184Data = await scrapeStationData('3100184', startDate, endDate);
+                        const station185Data = await scrapeStationData('3100185', startDate, endDate);
+
+                        // 保存抓取的資料到 Firebase
+                        await savePM10DataToFirebase(station184Data, station185Data);
+
+                        // 5. 檢查抓取到的資料是否超過閾值
+                        const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
+                        
+                        // 6. 回應最新一筆資料，並提示是否有超過閾值
+                        const latestData = station184Data.length ? station184Data[station184Data.length - 1] : recentPM10Data;
+                        const replyMessage = formatPM10ReplyMessage(latestData);
+
+                        // 回應使用者最新資料
+                        await client.replyMessage(event.replyToken, {
+                            type: 'text',
+                            text: replyMessage
+                        });
+
+                        // 如果有超過閾值的資料，也回應
+                        if (exceedAlert) {
+                            await client.replyMessage(event.replyToken, {
+                                type: 'text',
+                                text: exceedAlert
+                            });
+                        }
+
+                    } else {
+                        console.log('資料在1分鐘內，直接回應 Firebase 資料...');
+                        const replyMessage = formatPM10ReplyMessage(recentPM10Data);
+
+                        // 回應使用者 Firebase 中的最新資料
+                        await client.replyMessage(event.replyToken, {
+                            type: 'text',
+                            text: replyMessage
+                        });
+
+                        // 檢查是否超過閾值
+                        const exceedAlert = checkExceedThreshold([recentPM10Data]);
+                        if (exceedAlert) {
+                            await client.replyMessage(event.replyToken, {
+                                type: 'text',
+                                text: exceedAlert
+                            });
+                        }
+                    }
+
                 } catch (error) {
-                    console.error('取得 PM10 資料時發生錯誤:', error);
+                    console.error('即時查詢過程中發生錯誤:', error);
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
                         text: '抱歉，無法取得最新的 PM10 資料，請稍後再試。'
                     });
                 }
             }
-
-            // 當使用者發送 "24小時記錄" 訊息時
-            if (userMessage === '24小時記錄') {
-                console.log('執行 24 小時記錄查詢');
-                try {
-                    // 從 Firebase 取得 24 小時內的記錄
-                    const records = await get24HourRecords();
-
-                    // 取得設定中的 PM10 閾值
-                    const { threshold: PM10_THRESHOLD } = await getSettings();
-                    
-                    // 生成文字檔 24hr_record.txt
-                    const filePath = await generateRecordFile(records);
-                    
-                    // 將超過閾值的記錄發送給使用者
-                    const exceedingRecords = getExceedingRecords(records, PM10_THRESHOLD);
-                    let exceedMessage = exceedingRecords.length > 0 
-                        ? `24 小時內PM10超過閾值 ${PM10_THRESHOLD} 的記錄如下：\n${exceedingRecords.join('\n')}` 
-                        : `24 小時內PM10沒有超過閾值 ${PM10_THRESHOLD} 的記錄。`;
-
-                    // 回應使用者並提供下載連結
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: `${exceedMessage}\n\n點擊以下連結下載 24 小時記錄：\n${req.protocol}://${req.get('host')}/download/24hr_record.txt`
-                    });
-                } catch (error) {
-                    console.error('取得 24 小時記錄時發生錯誤:', error);
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: '抱歉，無法取得 24 小時記錄，請稍後再試。'
-                    });
-                }
-            }
-
-            // 當使用者發送「廣播」開頭的訊息時
-            if (userMessage.startsWith('廣播')) {
-                const broadcastMessageContent = userMessage; // 取得廣播的內容
-                console.log('開始進行廣播:', broadcastMessageContent);
-
-                try {
-                    // 發送廣播訊息給所有使用者
-                    await broadcastMessage(broadcastMessageContent);
-
-                } catch (error) {
-                    console.error('廣播訊息發送失敗:', error);
-                    await client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: '抱歉，廣播訊息發送失敗。'
-                    });
-                }
-            }
-
         }
-    };
-
-    // 回應 200 狀態碼，告知 LINE 接收成功
+    }
     res.status(200).end();
 });
 
+// 檢查資料範圍內是否有超過閾值，並判斷是否應發送警告
+async function checkExceedThresholdInRange(station184Data, station185Data) {
+    const { threshold: PM10_THRESHOLD, alertInterval: ALERT_INTERVAL } = await getSettings();
+    let exceedMessages = [];
+
+    // 取得上次發出警告的時間
+    const lastAlertTime = await getLastAlertTime();
+    const currentTime = moment().valueOf();
+    
+    // 計算上次警告的時間間隔
+    const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
+
+    // 若未超過警告間隔，跳過警告
+    if (timeSinceLastAlert < ALERT_INTERVAL) {
+        console.log(`距離上次警告時間不足 ${ALERT_INTERVAL} 分鐘，跳過警告。`);
+        return null;
+    }
+
+    // 若超過警告間隔，檢查 PM10 是否超過閾值
+    station184Data.forEach((entry) => {
+        if (entry.pm10 && parseInt(entry.pm10) >= PM10_THRESHOLD) {
+            exceedMessages.push(`184站點 ${entry.time} PM10 數據: ${entry.pm10} μg/m³，超過閾值`);
+        }
+    });
+
+    station185Data.forEach((entry) => {
+        if (entry.pm10 && parseInt(entry.pm10) >= PM10_THRESHOLD) {
+            exceedMessages.push(`185站點 ${entry.time} PM10 數據: ${entry.pm10} μg/m³，超過閾值`);
+        }
+    });
+
+    // 若有超過閾值的記錄，更新警告時間並發送警告
+    if (exceedMessages.length > 0) {
+        await updateLastAlertTime(currentTime);
+        return exceedMessages.join('\n');
+    }
+
+    return null;
+}
+
+
 // 從 Firebase 取得最新的 PM10 資料
 async function getLatestPM10Data() {
-    const recordsRef = db.ref('pm10_records');
-    const snapshot = await recordsRef.orderByKey().limitToLast(1).once('value');
+    const recordsRef = db.ref('pm10_records').orderByChild('timestamp').limitToLast(1);
+    const snapshot = await recordsRef.once('value');
     
     let latestData = null;
     snapshot.forEach((childSnapshot) => {
@@ -405,6 +457,46 @@ async function getLatestPM10Data() {
     });
 
     return latestData;
+}
+
+// 抓取指定時間範圍內的數據
+async function scrapeStationData(stationId, startDate, endDate) {
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    const url = `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(startDate)}&d2=${encodeURIComponent(endDate)}&tt=T01&f=0&col=1,2,3,9,10,11`;
+
+    await page.goto(url);
+
+    // 抓取資料
+    const pm10Data = await page.evaluate(() => {
+        const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
+        return rows.map(row => {
+            const time = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+            const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+            return { time, pm10: pm10Value };
+        });
+    });
+
+    await browser.close();
+    return pm10Data;
+}
+
+// 保存新資料到 Firebase
+async function savePM10DataToFirebase(station184Data, station185Data) {
+    const dataRef = db.ref('pm10_records');
+    
+    station184Data.forEach((entry, index) => {
+        const station185Entry = station185Data[index] || {};
+        const entryRef = dataRef.push();
+        
+        entryRef.set({
+            timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
+            station_184: entry.pm10,
+            station_185: station185Entry.pm10 || null
+        });
+    });
+
+    console.log('新數據已保存到 Firebase');
 }
 
 // 格式化回傳的 PM10 訊息
@@ -418,8 +510,8 @@ function formatPM10ReplyMessage(pm10Data) {
     const station185 = pm10Data.station_185 || '無資料';
 
     return `${timestamp}\n` +
-           `184堤外 PM10：${station184} μg/m³\n` +
-           `185堤上 PM10：${station185} μg/m³`;
+           `184測站 PM10：${station184} μg/m³\n` +
+           `185測站 PM10：${station185} μg/m³`;
 }
 
 // 發送廣播訊息
