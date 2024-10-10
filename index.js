@@ -70,7 +70,16 @@ async function getSettings() {
     // 讀取警告間隔
     const alertIntervalRef = db.ref('settings/ALERT_INTERVAL');
     const alertIntervalSnapshot = await alertIntervalRef.once('value');
-    let alertInterval = alertIntervalSnapshot.val() || 59;
+    let alertInterval = alertIntervalSnapshot.val();
+
+    // 如果沒有設置值，默認為 59 分鐘，並寫回 Firebase
+    if (alertInterval === null) {
+        alertInterval = 1;
+        await alertIntervalRef.set(alertInterval);
+        console.log(`SCRAPE_INTERVAL 不存在，已自動設為預設值: ${alertInterval} 分鐘`);
+    } else {
+        console.log(`從 Firebase 獲取的 ALERT_INTERVAL: ${alertInterval} 分鐘`);
+    }
 
     // 讀取帳號
     const accountRef = db.ref('settings/ACCOUNT_NAME');
@@ -397,6 +406,39 @@ app.post('/webhook', async (req, res) => {
                     await client.replyMessage(event.replyToken, {
                         type: 'text',
                         text: '抱歉，無法取得最新的 PM10 資料，請稍後再試。'
+                    });
+                }
+            }
+
+            // 當使用者發送 "24小時記錄" 訊息時
+            if (userMessage === '24小時記錄') {
+                console.log('執行 24 小時記錄查詢');
+                try {
+                    // 從 Firebase 取得 24 小時內的記錄
+                    const records = await get24HourRecords();
+
+                    // 取得設定中的 PM10 閾值
+                    const { threshold: PM10_THRESHOLD } = await getSettings();
+                    
+                    // 生成文字檔 24hr_record.txt
+                    const filePath = await generateRecordFile(records);
+                    
+                    // 將超過閾值的記錄發送給使用者
+                    const exceedingRecords = getExceedingRecords(records, PM10_THRESHOLD);
+                    let exceedMessage = exceedingRecords.length > 0 
+                        ? `24 小時內PM10超過閾值 ${PM10_THRESHOLD} 的記錄如下：\n${exceedingRecords.join('\n')}` 
+                        : `24 小時內PM10沒有超過閾值 ${PM10_THRESHOLD} 的記錄。`;
+
+                    // 回應使用者並提供下載連結
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: `${exceedMessage}\n\n點擊以下連結下載 24 小時記錄：\n${req.protocol}://${req.get('host')}/download/24hr_record.txt`
+                    });
+                } catch (error) {
+                    console.error('取得 24 小時記錄時發生錯誤:', error);
+                    await client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '抱歉，無法取得 24 小時記錄，請稍後再試。'
                     });
                 }
             }
