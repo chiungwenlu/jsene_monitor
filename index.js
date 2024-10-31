@@ -255,53 +255,58 @@ async function scrapeData() {
         await loginAndSaveCookies(page, accountName, accountPassword);
     }
 
-    // 從 Firebase 取得最新資料的時間
-    const latestData = await getLatestPM10Data(); // 假設此函數會返回最新一筆的數據資料
-    const startTime = latestData ? moment(latestData.timestamp).add(1, 'minute') : moment().subtract(1, 'hour');
-    const endTime = moment();  // 當前時間
-    const timeRange = [];
+    // 前往第一個站點頁面，確認是否需要重新登入
+    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
+    await ensureLogin(page, accountName, accountPassword);
 
-    // 將每分鐘的時間範圍加入陣列
-    let currentTime = startTime;
-    while (currentTime.isBefore(endTime)) {
-        timeRange.push(currentTime.format("YYYY/MM/DD HH:mm"));
-        currentTime.add(1, 'minute');
-    }
+    let result = { station_184: null, station_185: null };
 
-    let result = [];
-
-    // 針對時間範圍內的每分鐘抓取數據
     try {
-        for (const time of timeRange) {
-            await page.goto(`https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184&time=${time}`);
-            await ensureLogin(page, accountName, accountPassword);
-
-            const iframeElement184 = await page.waitForSelector('iframe#ifs');
-            const iframe184 = await iframeElement184.contentFrame();
-            const pm10_184 = await iframe184.evaluate(() => {
-                const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-                return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-            });
+        const iframeElement184 = await page.waitForSelector('iframe#ifs');
+        const iframe184 = await iframeElement184.contentFrame();
+        result.station_184 = await iframe184.evaluate(() => {
+            const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+            // 找出時間元素（假設時間資訊在 Date_Time 類別的元素中）
+            const timeElement = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('Date_Time'));
+            const timeValue = timeElement ? timeElement.textContent.match(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)[0] : null;
+            // 列出數據和時間到 console
+            console.log(`測站184數據時間: ${timeValue}`);
             
-            await page.goto(`https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185&time=${time}`);
-            const iframeElement185 = await page.$('iframe#ifs');
-            const iframe185 = await iframeElement185.contentFrame();
-            const pm10_185 = await iframe185.evaluate(() => {
-                const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-                return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-            });
+            return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
+        console.log('理虹(184) PM10 數據:', result.station_184);
 
-            // 將每分鐘的數據存入結果陣列
-            result.push({
-                timestamp: moment(time, 'YYYY/MM/DD HH:mm').valueOf(),
-                station_184: pm10_184,
-                station_185: pm10_185
-            });
+        await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
+        const iframeElement185 = await page.$('iframe#ifs');
+        const iframe185 = await iframeElement185.contentFrame();
+        result.station_185 = await iframe185.evaluate(() => {
+            const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+            return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
+        console.log('理虹(185) PM10 數據:', result.station_185);
+
+        if (result.station_184 || result.station_185) {
+            // 保存新資料並清理舊的資料
+            await savePM10DataAndCleanup(result);
         }
 
-        // 保存結果並清理舊的資料
-        if (result.length > 0) {
-            await savePM10DataAndCleanup(result);
+        let alertMessages = [];
+        if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
+            const alertMessage184 = formatAlertMessage('184堤外', '184堤外', result.station_184, PM10_THRESHOLD);
+            console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
+            alertMessages.push(alertMessage184);
+        }
+
+        if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
+            const alertMessage185 = formatAlertMessage('185堤上', '185堤上', result.station_185, PM10_THRESHOLD);
+            console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
+            alertMessages.push(alertMessage185);
+        }
+
+        if (alertMessages.length > 0) {
+            const combinedAlertMessage = alertMessages.join('\n');
+            await broadcastMessage(combinedAlertMessage);
+            result.alertSent = true;
         }
 
     } catch (error) {
