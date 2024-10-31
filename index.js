@@ -1,30 +1,27 @@
 const express = require("express");
-const puppeteer = require("puppeteer");
+const puppeteer = require("puppeteer");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
 const moment = require('moment-timezone');
-const axios = require('axios');
+const axios = require('axios');     // 引入 Axios，用來處理HTTP請求，例如與外部API溝通. 主要用於查詢LINE帳戶的訊息發送配額和已使用的訊息數量
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
-const fs = require('fs');
+const fs = require('fs');   // 引入內建的檔案系統（fs）和路徑（path）模組，用來處理檔案存取、路徑操作（例如保存Cookie、生成檔案下載路徑）
 const path = require('path');
-require("dotenv").config();
+require("dotenv").config(); // 引入並載入 .env 環境變數文件，用來保存敏感資料（如API金鑰）
 
-const app = express();
-const PORT = 4000;
+const app = express();  // 創建Express應用實例，提供路由及中介軟體的支援
+const PORT = process.env.PORT || 4000;
 
 // 設置台灣時區
 moment.tz.setDefault("Asia/Taipei");
 
 // 解析 JSON 請求
-app.use(express.json());
+app.use(express.json()); //  LINE Webhook 或其他 API 請求，如pinger
 
 // 設置LINE Messaging API客戶端的配置
 const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-console.log(`LINE_CHANNEL_ACCESS_TOKEN: ${config.channelAccessToken}`);
-console.log(`LINE_CHANNEL_SECRET: ${config.channelSecret}`);
-
 
 // 設置 LINE 客戶端
 const client = new line.Client(config);
@@ -35,7 +32,7 @@ admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: 'https://env-monitor-7167f-default-rtdb.firebaseio.com'
 });
-const db = admin.database();
+const db = admin.database(); // 建立 Firebase Database 物件
 
 // 從 Firebase 讀取設定，包含 PM10 閾值、SCRAPE_INTERVAL，以及帳號密碼
 async function getSettings() {
@@ -58,9 +55,9 @@ async function getSettings() {
     const intervalSnapshot = await intervalRef.once('value');
     let intervalMinutes = intervalSnapshot.val();
 
-    // 如果沒有設置值，默認為 1 分鐘，並寫回 Firebase
+    // 如果沒有設置值，默認為 10 分鐘，並寫回 Firebase
     if (intervalMinutes === null) {
-        intervalMinutes = 1;
+        intervalMinutes = 10;
         await intervalRef.set(intervalMinutes);
         console.log(`SCRAPE_INTERVAL 不存在，已自動設為預設值: ${intervalMinutes} 分鐘`);
     } else {
@@ -72,16 +69,16 @@ async function getSettings() {
     const alertIntervalSnapshot = await alertIntervalRef.once('value');
     let alertInterval = alertIntervalSnapshot.val();
 
-    // 如果沒有設置值，默認為 59 分鐘，並寫回 Firebase
+    // 如果沒有設置值，默認為 60 分鐘，並寫回 Firebase
     if (alertInterval === null) {
-        alertInterval = 1;
+        alertInterval = 60;
         await alertIntervalRef.set(alertInterval);
         console.log(`SCRAPE_INTERVAL 不存在，已自動設為預設值: ${alertInterval} 分鐘`);
     } else {
         console.log(`從 Firebase 獲取的 ALERT_INTERVAL: ${alertInterval} 分鐘`);
     }
 
-    // 讀取帳號
+    // 讀取www.jsene.com的帳號
     const accountRef = db.ref('settings/ACCOUNT_NAME');
     const accountSnapshot = await accountRef.once('value');
     let accountName = accountSnapshot.val();
@@ -95,7 +92,7 @@ async function getSettings() {
         console.log(`從 Firebase 獲取的 ACCOUNT_NAME: ${accountName}`);
     }
 
-    // 讀取密碼
+    // 讀取www.jsene.com的密碼
     const passwordRef = db.ref('settings/ACCOUNT_PASSWORD');
     const passwordSnapshot = await passwordRef.once('value');
     let accountPassword = passwordSnapshot.val();
@@ -112,15 +109,6 @@ async function getSettings() {
     // 確保 pm10_records 節點存在
     const recordsRef = db.ref('pm10_records');
     const snapshot = await recordsRef.once('value');
-
-    // 檢查節點是否存在，若不存在則建立 -> Firebase會自動建立節點
-    // if (!snapshot.exists()) {
-    //     console.log('pm10_records 節點不存在，將自動創建');
-    //     await recordsRef.set({});
-    //     console.log('pm10_records 節點已創建');
-    // } else {
-    //     console.log('pm10_records 節點已存在');
-    // }
 
     // 回傳所有設置
     return {
@@ -267,52 +255,53 @@ async function scrapeData() {
         await loginAndSaveCookies(page, accountName, accountPassword);
     }
 
-    // 前往第一個站點頁面，確認是否需要重新登入
-    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
-    await ensureLogin(page, accountName, accountPassword);
+    // 從 Firebase 取得最新資料的時間
+    const latestData = await getLatestPM10Data(); // 假設此函數會返回最新一筆的數據資料
+    const startTime = latestData ? moment(latestData.timestamp).add(1, 'minute') : moment().subtract(1, 'hour');
+    const endTime = moment();  // 當前時間
+    const timeRange = [];
 
-    let result = { station_184: null, station_185: null };
+    // 將每分鐘的時間範圍加入陣列
+    let currentTime = startTime;
+    while (currentTime.isBefore(endTime)) {
+        timeRange.push(currentTime.format("YYYY/MM/DD HH:mm"));
+        currentTime.add(1, 'minute');
+    }
 
+    let result = [];
+
+    // 針對時間範圍內的每分鐘抓取數據
     try {
-        const iframeElement184 = await page.waitForSelector('iframe#ifs');
-        const iframe184 = await iframeElement184.contentFrame();
-        result.station_184 = await iframe184.evaluate(() => {
-            const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-            return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(184) PM10 數據:', result.station_184);
+        for (const time of timeRange) {
+            await page.goto(`https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184&time=${time}`);
+            await ensureLogin(page, accountName, accountPassword);
 
-        await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
-        const iframeElement185 = await page.$('iframe#ifs');
-        const iframe185 = await iframeElement185.contentFrame();
-        result.station_185 = await iframe185.evaluate(() => {
-            const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-            return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(185) PM10 數據:', result.station_185);
+            const iframeElement184 = await page.waitForSelector('iframe#ifs');
+            const iframe184 = await iframeElement184.contentFrame();
+            const pm10_184 = await iframe184.evaluate(() => {
+                const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+                return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+            });
+            
+            await page.goto(`https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185&time=${time}`);
+            const iframeElement185 = await page.$('iframe#ifs');
+            const iframe185 = await iframeElement185.contentFrame();
+            const pm10_185 = await iframe185.evaluate(() => {
+                const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+                return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+            });
 
-        if (result.station_184 || result.station_185) {
-            // 保存新資料並清理舊的資料
+            // 將每分鐘的數據存入結果陣列
+            result.push({
+                timestamp: moment(time, 'YYYY/MM/DD HH:mm').valueOf(),
+                station_184: pm10_184,
+                station_185: pm10_185
+            });
+        }
+
+        // 保存結果並清理舊的資料
+        if (result.length > 0) {
             await savePM10DataAndCleanup(result);
-        }
-
-        let alertMessages = [];
-        if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
-            const alertMessage184 = formatAlertMessage('184堤外', '184堤外', result.station_184, PM10_THRESHOLD);
-            console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
-            alertMessages.push(alertMessage184);
-        }
-
-        if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
-            const alertMessage185 = formatAlertMessage('185堤上', '185堤上', result.station_185, PM10_THRESHOLD);
-            console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-            alertMessages.push(alertMessage185);
-        }
-
-        if (alertMessages.length > 0) {
-            const combinedAlertMessage = alertMessages.join('\n');
-            await broadcastMessage(combinedAlertMessage);
-            result.alertSent = true;
         }
 
     } catch (error) {
