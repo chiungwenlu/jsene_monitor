@@ -264,14 +264,9 @@ async function scrapeData() {
     try {
         const iframeElement184 = await page.waitForSelector('iframe#ifs');
         const iframe184 = await iframeElement184.contentFrame();
+        console.log('iframe184: ', iframe184);
         result.station_184 = await iframe184.evaluate(() => {
             const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-            // 找出時間元素（假設時間資訊在 Date_Time 類別的元素中）
-            const timeElement = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('Date_Time'));
-            const timeValue = timeElement ? timeElement.textContent.match(/\d{4}\/\d{2}\/\d{2} \d{2}:\d{2}/)[0] : null;
-            // 列出數據和時間到 console
-            console.log(`測站184數據時間: ${timeValue}`);
-            
             return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
         });
         console.log('理虹(184) PM10 數據:', result.station_184);
