@@ -503,9 +503,9 @@ async function scrapeStationData(stationId, startDate, endDate) {
     const pm10Data = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
         return rows.map(row => {
-            const time = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+            const siteTime  = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
             const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
-            return { time, pm10: pm10Value };
+            return { siteTime , pm10: pm10Value };
         });
     });
 
@@ -523,6 +523,7 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
         
         entryRef.set({
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
+            siteTime: entry.siteTime, // 網站登錄的時間
             station_184: entry.pm10,
             station_185: station185Entry.pm10 || null
         });
