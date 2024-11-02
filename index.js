@@ -505,6 +505,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
         return rows.map(row => {
             const siteTime  = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
             const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+            console.log('siteTime: ', siteTime);
             return { siteTime , pm10: pm10Value };
         });
     });
