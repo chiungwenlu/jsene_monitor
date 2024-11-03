@@ -455,8 +455,8 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
 
     console.log('checkExceedThresholdInRange: ');
-    console.log(`threshold: ${threshold}`);    
-    console.log(`alertInterval: ${alertInterval}`);    
+    console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);    
+    console.log(`ALERT_INTERVAL: ${ALERT_INTERVAL}`);    
     console.log(`lastAlertTime: ${lastAlertTime}`);    
     console.log(`currentTime: ${currentTime}`);    
     console.log(`timeSinceLastAlert: ${timeSinceLastAlert}`);
