@@ -451,7 +451,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     const lastAlertTime = await getLastAlertTime();
     const currentTime = moment().valueOf();
     
-    // 計算上次警告的時間間隔
+    // 計算上次警告的時間間隔, 若
     const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
 
     console.log('checkExceedThresholdInRange: ');
@@ -460,6 +460,8 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     console.log(`lastAlertTime: ${lastAlertTime}`);    
     console.log(`currentTime: ${currentTime}`);    
     console.log(`timeSinceLastAlert: ${timeSinceLastAlert}`);
+    console.log('station184Data:', station184Data);
+    console.log('station185Data:', station185Data);
         
     // 若未超過警告間隔，跳過警告
     if (timeSinceLastAlert < ALERT_INTERVAL) {
@@ -479,6 +481,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
             exceedMessages.push(`185站點 ${entry.time} PM10 數據: ${entry.pm10} μg/m³，超過閾值`);
         }
     });
+    console.log('exceedMessages:', exceedMessages);
 
     // 若有超過閾值的記錄，更新警告時間並發送警告
     if (exceedMessages.length > 0) {
