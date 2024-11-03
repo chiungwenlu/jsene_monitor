@@ -352,6 +352,11 @@ app.post('/webhook', async (req, res) => {
 
                         // 5. 檢查抓取到的資料是否超過閾值
                         const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
+                        if (exceedAlert) {
+                            console.log('超過閾值：', exceedAlert);
+                        } else {
+                            console.log('未超過閾值：');
+                        }
                         
                         // 6. 回應最新一筆資料，並提示是否有超過閾值
                         const latestData = station184Data.length ? station184Data[station184Data.length - 1] : recentPM10Data;
@@ -363,13 +368,13 @@ app.post('/webhook', async (req, res) => {
                             text: replyMessage
                         });
 
-                        // 如果有超過閾值的資料，也回應
-                        if (exceedAlert) {
-                            await client.replyMessage(event.replyToken, {
-                                type: 'text',
-                                text: exceedAlert
-                            });
-                        }
+                        // // 如果有超過閾值的資料，也回應
+                        // if (exceedAlert) {
+                        //     await client.replyMessage(event.replyToken, {
+                        //         type: 'text',
+                        //         text: exceedAlert
+                        //     });
+                        // }
 
                     } else {
                         console.log('資料在1分鐘內，直接回應 Firebase 資料...');
