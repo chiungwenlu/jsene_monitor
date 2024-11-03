@@ -201,6 +201,8 @@ async function savePM10DataAndCleanup(pm10Data) {
     // 保存新資料
     await dataRef.set({
         timestamp: moment().valueOf(),
+        readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
+        siteTime: entry.siteTime, // 網站登錄的時間
         station_184: pm10Data.station_184 || null,
         station_185: pm10Data.station_185 || null
     });
@@ -543,7 +545,7 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
         
         entryRef.set({
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
-            
+            readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
             siteTime: entry.siteTime, // 網站登錄的時間
             station_184: entry.pm10,
             station_185: station185Entry.pm10 || null
