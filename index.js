@@ -119,32 +119,6 @@ async function getSettings() {
         await recordsRef.set([]); // 建立空陣列或其他初始結構
     }
 
-    // 確保 readableTime 節點存在
-    const readableTimeRef = db.ref('readableTime');
-    const readableTimeSnapshot = await readableTimeRef.once('value');
-    if (readableTimeSnapshot.exists()) {
-        // 節點存在，可以處理或讀取數據
-        console.log('readableTime 節點存在，讀取數據:', readableTimeSnapshot.val());
-    } else {
-        // 節點不存在，可以進行初始化或其他操作
-        console.log('readableTime 節點不存在，準備初始化...');
-        // 初始化或建立 readableTime 節點
-        await readableTimeRef.set([]); // 建立空陣列或其他初始結構
-    }
-
-    // 確保 siteTime 節點存在
-    const siteTimeRef = db.ref('siteTime');
-    const siteTimeSnapshot = await siteTimeRef.once('value');
-    if (siteTimeSnapshot.exists()) {
-        // 節點存在，可以處理或讀取數據
-        console.log('siteTime 節點存在，讀取數據:', siteTimeSnapshot.val());
-    } else {
-        // 節點不存在，可以進行初始化或其他操作
-        console.log('siteTime 節點不存在，準備初始化...');
-        // 初始化或建立 siteTime 節點
-        await siteTimeRef.set([]); // 建立空陣列或其他初始結構
-    }
-
     // 回傳所有設置
     return {
         intervalMinutes: parseInt(intervalMinutes),
@@ -222,6 +196,7 @@ function formatAlertMessage(station, stationName, pm10Value, threshold) {
 
 // 保存新資料到 Firebase
 async function savePM10DataAndCleanup(pm10Data) {
+    console.log('保存新資料到 Firebase - savePM10DataAndCleanup');
     const dataRef = db.ref('pm10_records').push();
     
     // 保存新資料
@@ -563,6 +538,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
 // 保存新資料到 Firebase
 async function savePM10DataToFirebase(station184Data, station185Data) {
+    console.log("保存新資料到 Firebase - savePM10DataToFirebase");
     const dataRef = db.ref('pm10_records');
     
     station184Data.forEach((entry, index) => {
