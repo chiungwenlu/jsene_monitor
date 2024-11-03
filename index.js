@@ -352,6 +352,8 @@ app.post('/webhook', async (req, res) => {
 
                         // 5. 檢查抓取到的資料是否超過閾值
                         const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
+                        console.log('exceedAlert.Length: ', exceedAlert.length);
+                        
                         if (exceedAlert) {
                             console.log('超過閾值：', exceedAlert);
                         } else {
@@ -362,19 +364,20 @@ app.post('/webhook', async (req, res) => {
                         const latestData = station184Data.length ? station184Data[station184Data.length - 1] : recentPM10Data;
                         const replyMessage = formatPM10ReplyMessage(latestData);
 
+                        console.log('replyMessage: ', replyMessage);
                         // 回應使用者最新資料
                         await client.replyMessage(event.replyToken, {
                             type: 'text',
                             text: replyMessage
                         });
 
-                        // // 如果有超過閾值的資料，也回應
-                        // if (exceedAlert) {
-                        //     await client.replyMessage(event.replyToken, {
-                        //         type: 'text',
-                        //         text: exceedAlert
-                        //     });
-                        // }
+                        // 如果有超過閾值的資料，也回應
+                        if (exceedAlert) {
+                            await client.replyMessage(event.replyToken, {
+                                type: 'text',
+                                text: exceedAlert
+                            });
+                        }
 
                     } else {
                         console.log('資料在1分鐘內，直接回應 Firebase 資料...');
@@ -482,6 +485,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
         }
     });
     console.log('exceedMessages:', exceedMessages);
+    console.log('exceedMessages.length:', exceedMessages.length);
 
     // 若有超過閾值的記錄，更新警告時間並發送警告
     if (exceedMessages.length > 0) {
