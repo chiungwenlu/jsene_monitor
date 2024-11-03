@@ -264,7 +264,7 @@ async function scrapeData() {
     try {
         const iframeElement184 = await page.waitForSelector('iframe#ifs');
         const iframe184 = await iframeElement184.contentFrame();
-        console.log('iframe184: ', iframe184);
+        // console.log('iframe184: ', iframe184);
         result.station_184 = await iframe184.evaluate(() => {
             const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
             return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
@@ -353,7 +353,7 @@ app.post('/webhook', async (req, res) => {
                         // 5. 檢查抓取到的資料是否超過閾值
                         const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
                         console.log('exceedAlert.Length: ', exceedAlert.length);
-                        
+
                         if (exceedAlert) {
                             console.log('超過閾值：', exceedAlert);
                         } else {
@@ -372,7 +372,7 @@ app.post('/webhook', async (req, res) => {
                         });
 
                         // 如果有超過閾值的資料，也回應
-                        if (exceedAlert) {
+                        if (exceedAlert.length > 0) {
                             await client.replyMessage(event.replyToken, {
                                 type: 'text',
                                 text: exceedAlert
@@ -391,7 +391,7 @@ app.post('/webhook', async (req, res) => {
 
                         // 檢查是否超過閾值
                         const exceedAlert = checkExceedThreshold([recentPM10Data]);
-                        if (exceedAlert) {
+                        if (exceedAlert.length > 0) {
                             await client.replyMessage(event.replyToken, {
                                 type: 'text',
                                 text: exceedAlert
