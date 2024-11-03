@@ -454,6 +454,13 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     // 計算上次警告的時間間隔
     const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
 
+    console.log('checkExceedThresholdInRange: ');
+    console.log(`threshold: ${threshold}`);    
+    console.log(`alertInterval: ${alertInterval}`);    
+    console.log(`lastAlertTime: ${lastAlertTime}`);    
+    console.log(`currentTime: ${currentTime}`);    
+    console.log(`timeSinceLastAlert: ${timeSinceLastAlert}`);
+        
     // 若未超過警告間隔，跳過警告
     if (timeSinceLastAlert < ALERT_INTERVAL) {
         console.log(`距離上次警告時間不足 ${ALERT_INTERVAL} 分鐘，跳過警告。`);
