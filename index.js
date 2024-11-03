@@ -109,6 +109,15 @@ async function getSettings() {
     // 確保 pm10_records 節點存在
     const recordsRef = db.ref('pm10_records');
     const snapshot = await recordsRef.once('value');
+    if (snapshot.exists()) {
+        // 節點存在，可以處理或讀取數據
+        console.log('pm10_records 節點存在，讀取數據:', snapshot.val());
+    } else {
+        // 節點不存在，可以進行初始化或其他操作
+        console.log('pm10_records 節點不存在，準備初始化...');
+        // 初始化或建立 pm10_records 節點
+        await recordsRef.set([]); // 建立空陣列或其他初始結構
+    }
 
     // 回傳所有設置
     return {
