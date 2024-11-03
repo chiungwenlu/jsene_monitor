@@ -116,8 +116,9 @@ async function getSettings() {
         // 節點不存在，可以進行初始化或其他操作
         console.log('pm10_records 節點不存在，準備初始化...');
         // 初始化或建立 pm10_records 節點
-        await recordsRef.set([]); // 建立空陣列或其他初始結構
+        await recordsRef.set({}); // 使用空物件代替空陣列
     }
+    
 
     // 回傳所有設置
     return {
@@ -202,7 +203,7 @@ async function savePM10DataAndCleanup(pm10Data) {
     // 保存新資料
     await dataRef.set({
         timestamp: moment().valueOf(),
-        readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
+        readableTime: moment().format('YYYY/MM/DD HH:mm'), // 使用當前時間作為明碼時間
         siteTime: entry.siteTime, // 網站登錄的時間
         station_184: pm10Data.station_184 || null,
         station_185: pm10Data.station_185 || null
@@ -554,7 +555,7 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
             const entryRef = dataRef.push();
             entryRef.set({
                 timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
-                readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
+                readableTime: moment().format('YYYY/MM/DD HH:mm'), // 使用當前時間作為明碼時間
                 siteTime: entry.siteTime || "", // 確保 siteTime 存在
                 station_184: entry.pm10 || null,
                 station_185: station185Entry.pm10 || null
