@@ -543,7 +543,8 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
         
         entryRef.set({
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
-            siteTime: entry.siteTime, // 網站登錄的時間
+            readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
+            //siteTime: entry.siteTime, // 網站登錄的時間
             station_184: entry.pm10,
             station_185: station185Entry.pm10 || null
         });
