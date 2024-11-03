@@ -540,22 +540,37 @@ async function scrapeStationData(stationId, startDate, endDate) {
 async function savePM10DataToFirebase(station184Data, station185Data) {
     console.log("保存新資料到 Firebase - savePM10DataToFirebase");
     const dataRef = db.ref('pm10_records');
-    
+
     station184Data.forEach((entry, index) => {
-        const station185Entry = station185Data[index] || {};
-        const entryRef = dataRef.push();
-        
-        entryRef.set({
-            timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
-            readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
-            siteTime: entry.siteTime, // 網站登錄的時間
-            station_184: entry.pm10,
-            station_185: station185Entry.pm10 || null
-        });
+        try {
+            const station185Entry = station185Data[index] || {};
+
+            // 確保 entry.time 有效
+            if (!entry.time) {
+                console.error("缺少 entry.time，無法保存該筆資料。");
+                return;
+            }
+
+            const entryRef = dataRef.push();
+            entryRef.set({
+                timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
+                readableTime: moment(entry.time, 'YYYY/MM/DD HH:mm').format('YYYY/MM/DD HH:mm'), // 明碼時間
+                siteTime: entry.siteTime || "", // 確保 siteTime 存在
+                station_184: entry.pm10 || null,
+                station_185: station185Entry.pm10 || null
+            }).then(() => {
+                console.log("資料已保存到 Firebase:", entry);
+            }).catch(error => {
+                console.error("保存到 Firebase 失敗:", error);
+            });
+        } catch (error) {
+            console.error("處理資料時發生錯誤:", error);
+        }
     });
 
     console.log('新數據已保存到 Firebase');
 }
+
 
 // 格式化回傳的 PM10 訊息
 function formatPM10ReplyMessage(pm10Data) {
