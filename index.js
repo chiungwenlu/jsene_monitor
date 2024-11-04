@@ -111,7 +111,7 @@ async function getSettings() {
     const recordsSnapshot = await recordsRef.once('value');
     if (recordsSnapshot.exists()) {
         // 節點存在，可以處理或讀取數據
-        console.log('pm10_records 節點存在，讀取數據:', recordsSnapshot.val());
+        //console.log('pm10_records 節點存在，讀取數據:', recordsSnapshot.val());
     } else {
         // 節點不存在，可以進行初始化或其他操作
         console.log('pm10_records 節點不存在，準備初始化...');
@@ -275,33 +275,51 @@ async function scrapeData() {
     let result = { station_184: null, siteTime_184: null, station_185: null, siteTime_185: null };
 
     try {
-        const iframeElement184 = await page.waitForSelector('iframe#ifs');
-        const iframe184 = await iframeElement184.contentFrame();
-        // console.log('iframe184: ', iframe184);
-        result.station_184 = await iframe184.evaluate(() => {
-            const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-            return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        // 等待資料表格加載
+        await page.waitForSelector('#CP_CPn_JQGrid2 tbody');
+
+        // 取得所有的資料
+        const data184 = await page.evaluate(() => {
+            const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
+            return rows.map(row => {
+                const dateTime = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+                const pm10 = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+                return { dateTime, pm10 };
+            });
         });
-        result.siteTime_184 = await iframe184.evaluate(() => {
-            const siteTimeElement184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
-            return siteTimeElement184 ? siteTimeElement184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(184) PM10 數據:', result.station_184);
-        console.log('理虹(184) PM10 數據時間:', result.siteTime_184);
+
+        // 取得最後一筆資料
+        const lastEntry184 = data184.slice(-1)[0]; // 或者 const lastEntry = data.at(-1);
+
+        // 分別將 dateTime 和 pm10 存入兩個變數
+        result.station_184 = lastEntry184.pm10;
+        result.siteTime_184 = lastEntry184.dateTime;        
+        console.log('理虹(184) PM10 數據:', lastEntry184.pm10);
+        console.log('理虹(184) PM10 數據時間:', lastEntry184.dateTime);
 
         await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
-        const iframeElement185 = await page.$('iframe#ifs');
-        const iframe185 = await iframeElement185.contentFrame();
-        result.station_185 = await iframe185.evaluate(() => {
-            const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
-            return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        // 等待資料表格加載
+        await page.waitForSelector('#CP_CPn_JQGrid2 tbody');
+
+        // 取得所有的資料
+        const data185 = await page.evaluate(() => {
+            const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
+            return rows.map(row => {
+                const dateTime = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+                const pm10 = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+                return { dateTime, pm10 };
+            });
         });
-        result.siteTime_185 = await iframe185.evaluate(() => {
-            const siteTimeElement185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
-            return siteTimeElement185 ? siteTimeElement185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(185) PM10 數據:', result.station_185);
-        console.log('理虹(185) PM10 數據時間:', result.siteTime_185);
+
+        // 取得最後一筆資料
+        const lastEntry185 = data185.slice(-1)[0]; // 或者 const lastEntry = data.at(-1);
+
+        // 分別將 dateTime 和 pm10 存入兩個變數
+        result.station_185 = lastEntry185.pm10;
+        result.siteTime_185 = lastEntry185.dateTime;        
+        console.log('理虹(185) PM10 數據:', lastEntry185.pm10);
+        console.log('理虹(185) PM10 數據時間:', lastEntry185.dateTime);
+        
 
         if (result.station_184 || result.station_185) {
             // 保存新資料並清理舊的資料
