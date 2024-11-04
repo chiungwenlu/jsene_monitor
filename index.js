@@ -272,7 +272,7 @@ async function scrapeData() {
     await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
     await ensureLogin(page, accountName, accountPassword);
 
-    let result = { station_184: null, station_185: null };
+    let result = { station_184: null, siteTime_184: null, station_185: null, siteTime_185: null };
 
     try {
         const iframeElement184 = await page.waitForSelector('iframe#ifs');
@@ -282,7 +282,12 @@ async function scrapeData() {
             const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
             return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
         });
+        result.siteTime_184 = await iframe184.evaluate(() => {
+            const siteTimeElement184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
+            return siteTimeElement184 ? siteTimeElement184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
         console.log('理虹(184) PM10 數據:', result.station_184);
+        console.log('理虹(184) PM10 數據時間:', result.siteTime_184);
 
         await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
         const iframeElement185 = await page.$('iframe#ifs');
@@ -291,7 +296,12 @@ async function scrapeData() {
             const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
             return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
         });
+        result.siteTime_185 = await iframe185.evaluate(() => {
+            const siteTimeElement185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
+            return siteTimeElement185 ? siteTimeElement185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
         console.log('理虹(185) PM10 數據:', result.station_185);
+        console.log('理虹(185) PM10 數據時間:', result.siteTime_185);
 
         if (result.station_184 || result.station_185) {
             // 保存新資料並清理舊的資料
