@@ -282,8 +282,10 @@ async function scrapeData() {
         const data184 = await page.evaluate(() => {
             const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
             return rows.map(row => {
-                const dateTime = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
-                const pm10 = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+                // 使用索引 1 選取 dateTime
+                const dateTime = row.querySelectorAll('td')[1].textContent.trim();
+                // 使用索引 4 選取 pm10
+                const pm10 = row.querySelectorAll('td')[4].textContent.trim();
                 return { dateTime, pm10 };
             });
         });
@@ -305,8 +307,10 @@ async function scrapeData() {
         const data185 = await page.evaluate(() => {
             const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
             return rows.map(row => {
-                const dateTime = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
-                const pm10 = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+                // 使用索引 1 選取 dateTime
+                const dateTime = row.querySelectorAll('td')[1].textContent.trim();
+                // 使用索引 4 選取 pm10
+                const pm10 = row.querySelectorAll('td')[4].textContent.trim();
                 return { dateTime, pm10 };
             });
         });
