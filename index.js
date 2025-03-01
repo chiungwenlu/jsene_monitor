@@ -268,62 +268,45 @@ async function scrapeData() {
         await loginAndSaveCookies(page, accountName, accountPassword);
     }
 
-    // 前往第一個站點頁面，確認是否需要重新登入
-    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
-    await ensureLogin(page, accountName, accountPassword);
+    // 計算開始時間 (當前時間 - 10 分鐘)
+    const endTime = moment();
+    const startTime = moment().subtract(10, 'minutes');
+    const startDate = startTime.format('YYYY/MM/DD HH:mm');
+    const endDate = endTime.format('YYYY/MM/DD HH:mm');
 
-    let result = { station_184: null, station_185: null };
+    console.log(`抓取時間範圍: ${startDate} ~ ${endDate}`);
+
+    let result = { station_184: [], station_185: [] };
 
     try {
-        const iframeElement184 = await page.waitForSelector('iframe#ifs');
-        const iframe184 = await iframeElement184.contentFrame();
-        // console.log('iframe184: ', iframe184);
-        result.station_184 = await iframe184.evaluate(() => {
-            const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
-            return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(184) PM10 數據:', result.station_184);
+        // 1. 抓取 184 測站的數據
+        const station184Data = await scrapeStationData('3100184', startDate, endDate);
+        result.station_184 = station184Data;
 
-        await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
-        const iframeElement185 = await page.$('iframe#ifs');
-        const iframe185 = await iframeElement185.contentFrame();
-        result.station_185 = await iframe185.evaluate(() => {
-            const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('DateTime'));
-            return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
-        });
-        console.log('理虹(185) PM10 數據:', result.station_185);
+        // 2. 抓取 185 測站的數據
+        const station185Data = await scrapeStationData('3100185', startDate, endDate);
+        result.station_185 = station185Data;
 
-        if (result.station_184 || result.station_185) {
-            // 保存新資料並清理舊的資料
-            await savePM10DataAndCleanup(result);
+        // 3. 儲存所有數據
+        if (result.station_184.length > 0 || result.station_185.length > 0) {
+            await savePM10DataToFirebase(result.station_184, result.station_185);
         }
 
-        let alertMessages = [];
-        if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
-            const alertMessage184 = formatAlertMessage('184堤外', '184堤外', result.station_184, PM10_THRESHOLD);
-            console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
-            alertMessages.push(alertMessage184);
-        }
-
-        if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
-            const alertMessage185 = formatAlertMessage('185堤上', '185堤上', result.station_185, PM10_THRESHOLD);
-            console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
-            alertMessages.push(alertMessage185);
-        }
-
-        if (alertMessages.length > 0) {
-            const combinedAlertMessage = alertMessages.join('\n');
-            await broadcastMessage(combinedAlertMessage);
-            result.alertSent = true;
+        // 4. 檢查是否需要發送警報
+        const exceedAlert = await checkExceedThresholdInRange(result.station_184, result.station_185);
+        if (exceedAlert) {
+            console.log('⚠️ 發送 PM10 超標警報:', exceedAlert);
+            await broadcastMessage(exceedAlert);
         }
 
     } catch (error) {
-        console.error('抓取數據時出錯:', error);
+        console.error('❌ 抓取數據時發生錯誤:', error);
     } finally {
         await browser.close();
         return result;
     }
 }
+
 
 // Webhook 接收事件處理
 app.post('/webhook', async (req, res) => {
@@ -522,13 +505,12 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
     await page.goto(url);
 
-    // 抓取資料
+    // 抓取數據
     const pm10Data = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
         return rows.map(row => {
             const siteTime  = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
             const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
-            console.log('siteTime: ', siteTime);
             return { siteTime , pm10: pm10Value };
         });
     });
@@ -537,39 +519,39 @@ async function scrapeStationData(stationId, startDate, endDate) {
     return pm10Data;
 }
 
+
 // 保存新資料到 Firebase
 async function savePM10DataToFirebase(station184Data, station185Data) {
-    console.log("保存新資料到 Firebase - savePM10DataToFirebase");
+    console.log("📥 儲存新資料到 Firebase - savePM10DataToFirebase");
     const dataRef = db.ref('pm10_records');
 
-    station184Data.forEach((entry, index) => {
+    for (let i = 0; i < station184Data.length; i++) {
         try {
-            const station185Entry = station185Data[index] || {};
+            const entry184 = station184Data[i];
+            const entry185 = station185Data[i] || {}; // 可能對應時間沒有 185 數據
 
             // 確保 entry.time 有效
-            if (!entry.time) {
-                console.error("缺少 entry.time，無法保存該筆資料。");
-                return;
+            if (!entry184.siteTime) {
+                console.error("❌ 缺少時間戳，無法保存該筆資料。");
+                continue;
             }
 
             const entryRef = dataRef.push();
-            entryRef.set({
-                timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
-                readableTime: moment().format('YYYY/MM/DD HH:mm'), // 使用當前時間作為明碼時間
-                //siteTime: entry.siteTime || "", // 確保 siteTime 存在
-                station_184: entry.pm10 || null,
-                station_185: station185Entry.pm10 || null
-            }).then(() => {
-                console.log("資料已保存到 Firebase:", entry);
-            }).catch(error => {
-                console.error("保存到 Firebase 失敗:", error);
+            await entryRef.set({
+                timestamp: moment(entry184.siteTime, 'YYYY/MM/DD HH:mm').valueOf(),
+                readableTime: entry184.siteTime,
+                station_184: entry184.pm10 || null,
+                station_185: entry185.pm10 || null
             });
-        } catch (error) {
-            console.error("處理資料時發生錯誤:", error);
-        }
-    });
 
-    console.log('新數據已保存到 Firebase');
+            console.log("✅ 成功儲存:", entry184.siteTime, "PM10(184):", entry184.pm10, "PM10(185):", entry185.pm10);
+
+        } catch (error) {
+            console.error("❌ 儲存到 Firebase 失敗:", error);
+        }
+    }
+
+    console.log('✅ 所有數據已成功儲存到 Firebase');
 }
 
 
