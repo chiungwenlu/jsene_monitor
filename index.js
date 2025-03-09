@@ -516,7 +516,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
     console.log('🔗 嘗試存取 URL:', url);
     await page.goto(url, { waitUntil: 'networkidle2' });
     // 確保表格已載入
-    await page.waitForSelector('#CP_CPn_JQGrid2 tbody tr', { timeout: 5000 });
+    await page.waitForSelector('#CP_CPn_JQGrid2 tbody tr', { timeout: 15000 });
 
     // **檢查是否被導向到登入頁面**
     if (page.url().includes('Login.aspx')) {
