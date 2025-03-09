@@ -504,21 +504,7 @@ async function getLatestPM10Data() {
 
 // 抓取指定時間範圍內的數據
 async function scrapeStationData(stationId, startDate, endDate) {
-    const browser = await puppeteer.launch({
-        headless: 'new', 
-        args: [
-            "--disable-setuid-sandbox",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--disable-software-rasterizer",
-            "--disable-extensions",
-            "--disable-background-networking",
-            "--mute-audio",
-            "--single-process"
-        ],
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || puppeteer.executablePath()
-    });
+    const browser = await puppeteer.launch({headless: true });
     const page = await browser.newPage();
     
     // 登入資訊（從 Firebase 讀取或環境變數設定）
@@ -529,6 +515,8 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
     console.log('🔗 嘗試存取 URL:', url);
     await page.goto(url, { waitUntil: 'networkidle2' });
+    // 確保表格已載入
+    await page.waitForSelector('#CP_CPn_JQGrid2 tbody tr', { timeout: 5000 });
 
     // **檢查是否被導向到登入頁面**
     if (page.url().includes('Login.aspx')) {
