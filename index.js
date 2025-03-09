@@ -332,9 +332,17 @@ app.post('/webhook', async (req, res) => {
                     if (lastEntryTime && (currentTime - lastEntryTime > 1 * 60 * 1000)) {
                         console.log('最近資料超過1分鐘，抓取新資料...');
 
+                        // 取得當前時間
+                        const now = moment();
+
+                        // 設定當天 00:00 作為最早的開始時間
+                        const todayStart = now.startOf('day'); // 當天 00:00
+
                         // 3. 設定抓取範圍，從 Firebase 最新資料的下一筆開始
-                        const startTime = moment(lastEntryTime).add(1, 'minute');
-                        const endTime = moment();  // 當前時間
+                        const startTime = moment.max(moment(lastEntryTime).add(1, 'minute'), todayStart);
+                        const endTime = now; // 當前時間
+
+                        // 轉換格式
                         const startDate = startTime.format('YYYY/MM/DD HH:mm');
                         const endDate = endTime.format('YYYY/MM/DD HH:mm');
                         console.log(`資料抓取區間${startDate} ~ ${endDate}`);
