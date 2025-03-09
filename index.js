@@ -1,5 +1,6 @@
 const express = require("express");
-const puppeteer = require("puppeteer");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
+const puppeteer = require("puppeteer-extra");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const moment = require('moment-timezone');
 const axios = require('axios');     // 引入 Axios，用來處理HTTP請求，例如與外部API溝通. 主要用於查詢LINE帳戶的訊息發送配額和已使用的訊息數量
 const line = require('@line/bot-sdk');
@@ -7,6 +8,7 @@ const admin = require('firebase-admin');
 const fs = require('fs');   // 引入內建的檔案系統（fs）和路徑（path）模組，用來處理檔案存取、路徑操作（例如保存Cookie、生成檔案下載路徑）
 const path = require('path');
 require("dotenv").config(); // 引入並載入 .env 環境變數文件，用來保存敏感資料（如API金鑰）
+puppeteer.use(StealthPlugin());
 
 const app = express();  // 創建Express應用實例，提供路由及中介軟體的支援
 const PORT = process.env.PORT || 4000;
@@ -515,15 +517,33 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
     // 抓取數據
     const pm10Data = await page.evaluate(() => {
-        const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
+        // 確保數據載入完成
+        const table = document.querySelector("#CP_CPn_JQGrid2 tbody");
+        if (!table) {
+            console.log("❌ 找不到表格");
+            return [];
+        }
+    
+        const rows = Array.from(table.querySelectorAll("tr"));
+        console.log("抓取到的數據行數:", rows.length);
+    
         return rows.map(row => {
-            const siteTime  = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
-            const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
-            return { siteTime , pm10: pm10Value };
-        });
+            const dateTimeCell = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]');
+            const pm10Cell = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]');
+    
+            if (!dateTimeCell || !pm10Cell) {
+                return null; // 確保不會解析錯誤
+            }
+    
+            return {
+                siteTime: dateTimeCell.textContent.trim(),
+                pm10: pm10Cell.textContent.trim()
+            };
+        }).filter(Boolean); // 過濾掉 null
     });
 
     await browser.close();
+    console.log("爬取結果:", pm10Data);
     return pm10Data;
 }
 
