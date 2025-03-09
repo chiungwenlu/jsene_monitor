@@ -356,7 +356,7 @@ app.post('/webhook', async (req, res) => {
 
                         // 5. 檢查抓取到的資料是否超過閾值
                         const exceedAlert = await checkExceedThresholdInRange(station184Data, station185Data);
-                        console.log('exceedAlert.Length: ', exceedAlert.length);
+                        console.log('exceedAlert.Length: ', exceedAlert ? exceedAlert.length : 0);
 
                         if (exceedAlert) {
                             console.log('超過閾值：', exceedAlert);
@@ -464,7 +464,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     // 若未超過警告間隔，跳過警告
     if (timeSinceLastAlert < ALERT_INTERVAL) {
         console.log(`距離上次警告時間不足 ${ALERT_INTERVAL} 分鐘，跳過警告。`);
-        return null;
+        return [];
     }
 
     // 若超過警告間隔，檢查 PM10 是否超過閾值
@@ -488,7 +488,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
         return exceedMessages.join('\n');
     }
 
-    return null;
+    return [];
 }
 
 
