@@ -531,9 +531,10 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
     station184Data.forEach((entry, index) => {
         const station185Entry = station185Data[index] || {};
         const entryRef = dataRef.push();
+        console.log('entry.time: ', entry.time);
         
         entryRef.set({
-            rawtime: entry.time,
+            raw_time: entry.time,  // 新增原始時間字串
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
             station_184: entry.pm10,
             station_185: station185Entry.pm10 || null
