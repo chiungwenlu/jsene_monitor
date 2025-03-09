@@ -533,6 +533,7 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
         const entryRef = dataRef.push();
         
         entryRef.set({
+            rawtime: entry.time,
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
             station_184: entry.pm10,
             station_185: station185Entry.pm10 || null
