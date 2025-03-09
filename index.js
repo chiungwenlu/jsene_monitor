@@ -509,7 +509,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
     
     // 登入資訊（從 Firebase 讀取或環境變數設定）
     const accountName = process.env.JSENE_ACCOUNT || 'ExcelTek';
-    const accountPassword = process.env.JSENE_PASSWORD || 'your_password_here';
+    const accountPassword = process.env.JSENE_PASSWORD || 'ExcelTek';
 
     const url = `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(startDate)}&d2=${encodeURIComponent(endDate)}&tt=T01&f=0&col=1,2,3,9,10,11`;
 
@@ -521,6 +521,8 @@ async function scrapeStationData(stationId, startDate, endDate) {
         console.log('⚠️ 被導向到登入頁面，開始自動登入...');
 
         // 輸入帳號
+        console.log('accountName: ', accountName);
+        console.log('accountPassword: ', accountPassword);
         await page.type('#T_Account', accountName);
         await page.type('#T_Password', accountPassword);
 
