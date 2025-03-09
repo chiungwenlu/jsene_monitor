@@ -1,27 +1,30 @@
 const express = require("express");
-const puppeteer = require("puppeteer");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
+const puppeteer = require("puppeteer");
 const moment = require('moment-timezone');
-const axios = require('axios');     // 引入 Axios，用來處理HTTP請求，例如與外部API溝通. 主要用於查詢LINE帳戶的訊息發送配額和已使用的訊息數量
+const axios = require('axios');
 const line = require('@line/bot-sdk');
 const admin = require('firebase-admin');
-const fs = require('fs');   // 引入內建的檔案系統（fs）和路徑（path）模組，用來處理檔案存取、路徑操作（例如保存Cookie、生成檔案下載路徑）
+const fs = require('fs');
 const path = require('path');
-require("dotenv").config(); // 引入並載入 .env 環境變數文件，用來保存敏感資料（如API金鑰）
+require("dotenv").config();
 
-const app = express();  // 創建Express應用實例，提供路由及中介軟體的支援
-const PORT = process.env.PORT || 4000;
+const app = express();
+const PORT = 4000;
 
 // 設置台灣時區
 moment.tz.setDefault("Asia/Taipei");
 
 // 解析 JSON 請求
-app.use(express.json()); //  LINE Webhook 或其他 API 請求，如pinger
+app.use(express.json());
 
 // 設置LINE Messaging API客戶端的配置
 const config = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
+console.log(`LINE_CHANNEL_ACCESS_TOKEN: ${config.channelAccessToken}`);
+console.log(`LINE_CHANNEL_SECRET: ${config.channelSecret}`);
+
 
 // 設置 LINE 客戶端
 const client = new line.Client(config);
@@ -32,7 +35,7 @@ admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
     databaseURL: 'https://env-monitor-7167f-default-rtdb.firebaseio.com'
 });
-const db = admin.database(); // 建立 Firebase Database 物件
+const db = admin.database();
 
 // 從 Firebase 讀取設定，包含 PM10 閾值、SCRAPE_INTERVAL，以及帳號密碼
 async function getSettings() {
@@ -55,9 +58,9 @@ async function getSettings() {
     const intervalSnapshot = await intervalRef.once('value');
     let intervalMinutes = intervalSnapshot.val();
 
-    // 如果沒有設置值，默認為 10 分鐘，並寫回 Firebase
+    // 如果沒有設置值，默認為 1 分鐘，並寫回 Firebase
     if (intervalMinutes === null) {
-        intervalMinutes = 10;
+        intervalMinutes = 1;
         await intervalRef.set(intervalMinutes);
         console.log(`SCRAPE_INTERVAL 不存在，已自動設為預設值: ${intervalMinutes} 分鐘`);
     } else {
@@ -69,16 +72,16 @@ async function getSettings() {
     const alertIntervalSnapshot = await alertIntervalRef.once('value');
     let alertInterval = alertIntervalSnapshot.val();
 
-    // 如果沒有設置值，默認為 60 分鐘，並寫回 Firebase
+    // 如果沒有設置值，默認為 59 分鐘，並寫回 Firebase
     if (alertInterval === null) {
-        alertInterval = 60;
+        alertInterval = 1;
         await alertIntervalRef.set(alertInterval);
         console.log(`SCRAPE_INTERVAL 不存在，已自動設為預設值: ${alertInterval} 分鐘`);
     } else {
         console.log(`從 Firebase 獲取的 ALERT_INTERVAL: ${alertInterval} 分鐘`);
     }
 
-    // 讀取www.jsene.com的帳號
+    // 讀取帳號
     const accountRef = db.ref('settings/ACCOUNT_NAME');
     const accountSnapshot = await accountRef.once('value');
     let accountName = accountSnapshot.val();
@@ -92,7 +95,7 @@ async function getSettings() {
         console.log(`從 Firebase 獲取的 ACCOUNT_NAME: ${accountName}`);
     }
 
-    // 讀取www.jsene.com的密碼
+    // 讀取密碼
     const passwordRef = db.ref('settings/ACCOUNT_PASSWORD');
     const passwordSnapshot = await passwordRef.once('value');
     let accountPassword = passwordSnapshot.val();
@@ -108,17 +111,16 @@ async function getSettings() {
 
     // 確保 pm10_records 節點存在
     const recordsRef = db.ref('pm10_records');
-    const recordsSnapshot = await recordsRef.once('value');
-    if (recordsSnapshot.exists()) {
-        // 節點存在，可以處理或讀取數據
-        //console.log('pm10_records 節點存在，讀取數據:', recordsSnapshot.val());
-    } else {
-        // 節點不存在，可以進行初始化或其他操作
-        console.log('pm10_records 節點不存在，準備初始化...');
-        // 初始化或建立 pm10_records 節點
-        await recordsRef.set({}); // 使用空物件代替空陣列
-    }
-    
+    const snapshot = await recordsRef.once('value');
+
+    // 檢查節點是否存在，若不存在則建立 -> Firebase會自動建立節點
+    // if (!snapshot.exists()) {
+    //     console.log('pm10_records 節點不存在，將自動創建');
+    //     await recordsRef.set({});
+    //     console.log('pm10_records 節點已創建');
+    // } else {
+    //     console.log('pm10_records 節點已存在');
+    // }
 
     // 回傳所有設置
     return {
@@ -197,14 +199,11 @@ function formatAlertMessage(station, stationName, pm10Value, threshold) {
 
 // 保存新資料到 Firebase
 async function savePM10DataAndCleanup(pm10Data) {
-    console.log('保存新資料到 Firebase - savePM10DataAndCleanup');
     const dataRef = db.ref('pm10_records').push();
     
     // 保存新資料
     await dataRef.set({
         timestamp: moment().valueOf(),
-        readableTime: moment().format('YYYY/MM/DD HH:mm'), // 使用當前時間作為明碼時間
-        //siteTime: entry.siteTime, // 網站登錄的時間
         station_184: pm10Data.station_184 || null,
         station_185: pm10Data.station_185 || null
     });
@@ -268,45 +267,61 @@ async function scrapeData() {
         await loginAndSaveCookies(page, accountName, accountPassword);
     }
 
-    // 計算開始時間 (當前時間 - 10 分鐘)
-    const endTime = moment();
-    const startTime = moment().subtract(10, 'minutes');
-    const startDate = startTime.format('YYYY/MM/DD HH:mm');
-    const endDate = endTime.format('YYYY/MM/DD HH:mm');
+    // 前往第一個站點頁面，確認是否需要重新登入
+    await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100184');
+    await ensureLogin(page, accountName, accountPassword);
 
-    console.log(`抓取時間範圍: ${startDate} ~ ${endDate}`);
-
-    let result = { station_184: [], station_185: [] };
+    let result = { station_184: null, station_185: null };
 
     try {
-        // 1. 抓取 184 測站的數據
-        const station184Data = await scrapeStationData('3100184', startDate, endDate);
-        result.station_184 = station184Data;
+        const iframeElement184 = await page.waitForSelector('iframe#ifs');
+        const iframe184 = await iframeElement184.contentFrame();
+        result.station_184 = await iframe184.evaluate(() => {
+            const pm10Element184 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+            return pm10Element184 ? pm10Element184.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
+        console.log('理虹(184) PM10 數據:', result.station_184);
 
-        // 2. 抓取 185 測站的數據
-        const station185Data = await scrapeStationData('3100185', startDate, endDate);
-        result.station_185 = station185Data;
+        await page.goto('https://www.jsene.com/juno/Station.aspx?PJ=200209&ST=3100185');
+        const iframeElement185 = await page.$('iframe#ifs');
+        const iframe185 = await iframeElement185.contentFrame();
+        result.station_185 = await iframe185.evaluate(() => {
+            const pm10Element185 = Array.from(document.querySelectorAll('.list-group-item')).find(el => el.textContent.includes('PM10'));
+            return pm10Element185 ? pm10Element185.querySelector('span.pull-right[style*="right:60px"]').textContent.trim() : null;
+        });
+        console.log('理虹(185) PM10 數據:', result.station_185);
 
-        // 3. 儲存所有數據
-        if (result.station_184.length > 0 || result.station_185.length > 0) {
-            await savePM10DataToFirebase(result.station_184, result.station_185);
+        if (result.station_184 || result.station_185) {
+            // 保存新資料並清理舊的資料
+            await savePM10DataAndCleanup(result);
         }
 
-        // 4. 檢查是否需要發送警報
-        const exceedAlert = await checkExceedThresholdInRange(result.station_184, result.station_185);
-        if (exceedAlert) {
-            console.log('⚠️ 發送 PM10 超標警報:', exceedAlert);
-            await broadcastMessage(exceedAlert);
+        let alertMessages = [];
+        if (result.station_184 && parseInt(result.station_184) >= PM10_THRESHOLD) {
+            const alertMessage184 = formatAlertMessage('184堤外', '184堤外', result.station_184, PM10_THRESHOLD);
+            console.log('自動抓取超過閾值 (184) 發送警告:', alertMessage184);
+            alertMessages.push(alertMessage184);
+        }
+
+        if (result.station_185 && parseInt(result.station_185) >= PM10_THRESHOLD) {
+            const alertMessage185 = formatAlertMessage('185堤上', '185堤上', result.station_185, PM10_THRESHOLD);
+            console.log('自動抓取超過閾值 (185) 發送警告:', alertMessage185);
+            alertMessages.push(alertMessage185);
+        }
+
+        if (alertMessages.length > 0) {
+            const combinedAlertMessage = alertMessages.join('\n');
+            await broadcastMessage(combinedAlertMessage);
+            result.alertSent = true;
         }
 
     } catch (error) {
-        console.error('❌ 抓取數據時發生錯誤:', error);
+        console.error('抓取數據時出錯:', error);
     } finally {
         await browser.close();
         return result;
     }
 }
-
 
 // Webhook 接收事件處理
 app.post('/webhook', async (req, res) => {
@@ -332,17 +347,9 @@ app.post('/webhook', async (req, res) => {
                     if (lastEntryTime && (currentTime - lastEntryTime > 1 * 60 * 1000)) {
                         console.log('最近資料超過1分鐘，抓取新資料...');
 
-                        // 取得當前時間
-                        const now = moment();
-
-                        // 設定當天 00:00 作為最早的開始時間
-                        const todayStart = moment().startOf('day'); // 設定當天 00:00
-
                         // 3. 設定抓取範圍，從 Firebase 最新資料的下一筆開始
-                        const startTime = moment.max(moment(lastEntryTime).add(1, 'minute'), todayStart);
-                        const endTime = now; // 當前時間
-
-                        // 轉換格式
+                        const startTime = moment(lastEntryTime).add(1, 'minute');
+                        const endTime = moment();  // 當前時間
                         const startDate = startTime.format('YYYY/MM/DD HH:mm');
                         const endDate = endTime.format('YYYY/MM/DD HH:mm');
                         console.log(`資料抓取區間${startDate} ~ ${endDate}`);
@@ -355,20 +362,12 @@ app.post('/webhook', async (req, res) => {
                         await savePM10DataToFirebase(station184Data, station185Data);
 
                         // 5. 檢查抓取到的資料是否超過閾值
-                        const exceedAlert = await checkExceedThresholdInRange(station184Data, station185Data);
-                        console.log('exceedAlert.Length: ', exceedAlert ? exceedAlert.length : 0);
-
-                        if (exceedAlert) {
-                            console.log('超過閾值：', exceedAlert);
-                        } else {
-                            console.log('未超過閾值：');
-                        }
+                        const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
                         
                         // 6. 回應最新一筆資料，並提示是否有超過閾值
                         const latestData = station184Data.length ? station184Data[station184Data.length - 1] : recentPM10Data;
                         const replyMessage = formatPM10ReplyMessage(latestData);
 
-                        console.log('replyMessage: ', replyMessage);
                         // 回應使用者最新資料
                         await client.replyMessage(event.replyToken, {
                             type: 'text',
@@ -376,7 +375,7 @@ app.post('/webhook', async (req, res) => {
                         });
 
                         // 如果有超過閾值的資料，也回應
-                        if (exceedAlert.length > 0) {
+                        if (exceedAlert) {
                             await client.replyMessage(event.replyToken, {
                                 type: 'text',
                                 text: exceedAlert
@@ -392,6 +391,15 @@ app.post('/webhook', async (req, res) => {
                             type: 'text',
                             text: replyMessage
                         });
+
+                        // 檢查是否超過閾值
+                        const exceedAlert = checkExceedThreshold([recentPM10Data]);
+                        if (exceedAlert) {
+                            await client.replyMessage(event.replyToken, {
+                                type: 'text',
+                                text: exceedAlert
+                            });
+                        }
                     }
 
                 } catch (error) {
@@ -449,22 +457,13 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     const lastAlertTime = await getLastAlertTime();
     const currentTime = moment().valueOf();
     
-    // 計算上次警告的時間間隔, 若
+    // 計算上次警告的時間間隔
     const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
 
-    console.log('checkExceedThresholdInRange: ');
-    console.log(`   PM10_THRESHOLD: ${PM10_THRESHOLD}`);    
-    console.log(`   ALERT_INTERVAL: ${ALERT_INTERVAL}`);    
-    console.log(`   lastAlertTime: ${lastAlertTime}`);    
-    console.log(`   currentTime: ${currentTime}`);    
-    console.log(`   timeSinceLastAlert: ${timeSinceLastAlert}`);
-    console.log('   station184Data:', station184Data);
-    console.log('   station185Data:', station185Data);
-        
     // 若未超過警告間隔，跳過警告
     if (timeSinceLastAlert < ALERT_INTERVAL) {
         console.log(`距離上次警告時間不足 ${ALERT_INTERVAL} 分鐘，跳過警告。`);
-        return [];
+        return null;
     }
 
     // 若超過警告間隔，檢查 PM10 是否超過閾值
@@ -479,8 +478,6 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
             exceedMessages.push(`185站點 ${entry.time} PM10 數據: ${entry.pm10} μg/m³，超過閾值`);
         }
     });
-    console.log('exceedMessages:', exceedMessages);
-    console.log('exceedMessages.length:', exceedMessages.length);
 
     // 若有超過閾值的記錄，更新警告時間並發送警告
     if (exceedMessages.length > 0) {
@@ -488,7 +485,7 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
         return exceedMessages.join('\n');
     }
 
-    return [];
+    return null;
 }
 
 
@@ -513,73 +510,38 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
     await page.goto(url);
 
-    // 抓取數據
+    // 抓取資料
     const pm10Data = await page.evaluate(() => {
-        // 確保數據載入完成
-        const table = document.querySelector("#CP_CPn_JQGrid2 tbody");
-        if (!table) {
-            console.log("❌ 找不到表格");
-            return [];
-        }
-    
-        const rows = Array.from(table.querySelectorAll("tr"));
-        console.log("抓取到的數據行數:", rows.length);
-    
+        const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
         return rows.map(row => {
-            const dateTimeCell = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]');
-            const pm10Cell = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]');
-    
-            if (!dateTimeCell || !pm10Cell) {
-                return null; // 確保不會解析錯誤
-            }
-    
-            return {
-                siteTime: dateTimeCell.textContent.trim(),
-                pm10: pm10Cell.textContent.trim()
-            };
-        }).filter(Boolean); // 過濾掉 null
+            const time = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+            const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+            return { time, pm10: pm10Value };
+        });
     });
 
     await browser.close();
-    console.log("爬取結果:", pm10Data);
     return pm10Data;
 }
 
-
 // 保存新資料到 Firebase
 async function savePM10DataToFirebase(station184Data, station185Data) {
-    console.log("📥 儲存新資料到 Firebase - savePM10DataToFirebase");
     const dataRef = db.ref('pm10_records');
+    
+    station184Data.forEach((entry, index) => {
+        const station185Entry = station185Data[index] || {};
+        const entryRef = dataRef.push();
+        
+        entryRef.set({
+            rawtime: entry.time,
+            timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
+            station_184: entry.pm10,
+            station_185: station185Entry.pm10 || null
+        });
+    });
 
-    for (let i = 0; i < station184Data.length; i++) {
-        try {
-            const entry184 = station184Data[i];
-            const entry185 = station185Data[i] || {}; // 可能對應時間沒有 185 數據
-
-            // 確保 entry.time 有效
-            if (!entry184.siteTime) {
-                console.error("❌ 缺少時間戳，無法保存該筆資料。");
-                continue;
-            }
-
-            const entryRef = dataRef.push();
-            await entryRef.set({
-                timestamp: moment(entry184.siteTime, 'YYYY/MM/DD HH:mm').valueOf(),
-                readableTime: entry184.siteTime,
-                station_184: entry184.pm10 || null,
-                station_185: entry185.pm10 || null
-            });
-
-            console.log("✅ 成功儲存:", entry184.siteTime, "PM10(184):", entry184.pm10, "PM10(185):", entry185.pm10);
-
-        } catch (error) {
-            console.error("❌ 儲存到 Firebase 失敗:", error);
-        }
-    }
-
-    console.log('✅ 所有數據已成功儲存到 Firebase');
+    console.log('新數據已保存到 Firebase');
 }
-
 
 // 格式化回傳的 PM10 訊息
 function formatPM10ReplyMessage(pm10Data) {
