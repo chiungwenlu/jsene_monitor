@@ -510,6 +510,9 @@ async function scrapeStationData(stationId, startDate, endDate) {
 
     console.log('url: ',url);
     await page.goto(url);
+    const pageTitle = await page.title();
+    console.log('當前頁面標題:', pageTitle);
+    console.log('當前頁面 URL:', page.url());  // 確保沒有被導向到登入頁
 
     // 抓取資料
     const pm10Data = await page.evaluate(() => {
