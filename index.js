@@ -504,33 +504,72 @@ async function getLatestPM10Data() {
 
 // 抓取指定時間範圍內的數據
 async function scrapeStationData(stationId, startDate, endDate) {
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: false });  // 設定 false 以觀察瀏覽器行為
     const page = await browser.newPage();
+    
+    // 登入資訊（從 Firebase 讀取或環境變數設定）
+    const accountName = process.env.JSENE_ACCOUNT || 'ExcelTek';
+    const accountPassword = process.env.JSENE_PASSWORD || 'your_password_here';
+
     const url = `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(startDate)}&d2=${encodeURIComponent(endDate)}&tt=T01&f=0&col=1,2,3,9,10,11`;
 
-    console.log('url: ',url);
-    await page.goto(url);
-    const pageTitle = await page.title();
-    console.log('當前頁面標題:', pageTitle);
-    console.log('當前頁面 URL:', page.url());  // 確保沒有被導向到登入頁
+    console.log('🔗 嘗試存取 URL:', url);
+    await page.goto(url, { waitUntil: 'networkidle2' });
 
-    // 抓取資料
+    // **檢查是否被導向到登入頁面**
+    if (page.url().includes('Login.aspx')) {
+        console.log('⚠️ 被導向到登入頁面，開始自動登入...');
+
+        // 輸入帳號
+        await page.type('#T_Account', accountName);
+        await page.type('#T_Password', accountPassword);
+
+        // 按下登入按鈕
+        await Promise.all([
+            page.click('#Btn_Login'),
+            page.waitForNavigation({ waitUntil: 'networkidle2' })  // 等待頁面完成加載
+        ]);
+
+        // **確認是否成功登入**
+        if (page.url().includes('Login.aspx')) {
+            console.log('❌ 登入失敗，請確認帳號密碼是否正確！');
+            await browser.close();
+            return [];
+        }
+
+        console.log('✅ 登入成功，重新訪問數據頁面...');
+        await page.goto(url, { waitUntil: 'networkidle2' });
+    }
+
+    // **確認是否成功訪問數據頁面**
+    if (page.url().includes('Login.aspx')) {
+        console.log('❌ 仍然在登入頁面，無法存取數據！');
+        await browser.close();
+        return [];
+    }
+
+    console.log('✅ 成功進入數據頁面，開始抓取 PM10 數據...');
+
+    // **抓取數據**
     const pm10Data = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
         return rows.map(row => {
-            const time = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
-            const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
-            return { time, pm10: pm10Value };
+            const timeElement = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]');
+            const pm10Element = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]');
+
+            return {
+                time: timeElement ? timeElement.textContent.trim() : null,
+                pm10: pm10Element ? pm10Element.textContent.trim() : null
+            };
         });
     });
 
-    // console.log('rawtime: ',time);
-     // 顯示抓取到的數據
-     console.log('抓取到的 PM10 Data:', JSON.stringify(pm10Data, null, 2));
+    console.log('📊 抓取到的 PM10 Data:', JSON.stringify(pm10Data, null, 2));
 
     await browser.close();
     return pm10Data;
 }
+
 
 // 保存新資料到 Firebase
 async function savePM10DataToFirebase(station184Data, station185Data) {
