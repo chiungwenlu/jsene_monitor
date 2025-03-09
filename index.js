@@ -514,23 +514,19 @@ async function scrapeStationData(stationId, startDate, endDate) {
     const pm10Data = await page.evaluate(() => {
         const rows = Array.from(document.querySelectorAll('#CP_CPn_JQGrid2 tbody tr'));
         return rows.map(row => {
-            const timeElement = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]');
-            const pm10Element = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]');
-
-            return {
-                time: timeElement ? timeElement.textContent.trim() : null,  // 確保 time 存在
-                pm10: pm10Element ? pm10Element.textContent.trim() : null
-            };
+            const time = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').textContent.trim();
+            const pm10Value = row.querySelector('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').textContent.trim();
+            return { time, pm10: pm10Value };
         });
     });
 
-    // **改正的部分：用 JSON.stringify() 顯示完整資料**
-    console.log('抓取到的 PM10 Data:', JSON.stringify(pm10Data, null, 2));
-
+    // console.log('rawtime: ',time);
+     // 顯示抓取到的數據
+     console.log('抓取到的 PM10 Data:', JSON.stringify(pm10Data, null, 2));
+     
     await browser.close();
     return pm10Data;
 }
-
 
 // 保存新資料到 Firebase
 async function savePM10DataToFirebase(station184Data, station185Data) {
