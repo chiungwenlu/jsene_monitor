@@ -520,6 +520,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
         });
     });
 
+    console.log('rawtime: ',time);
     await browser.close();
     return pm10Data;
 }
@@ -532,7 +533,7 @@ async function savePM10DataToFirebase(station184Data, station185Data) {
         const station185Entry = station185Data[index] || {};
         const entryRef = dataRef.push();
         console.log('entry.time: ', entry.time);
-        
+
         entryRef.set({
             raw_time: entry.time,  // 新增原始時間字串
             timestamp: moment(entry.time, 'YYYY/MM/DD HH:mm').valueOf(),
