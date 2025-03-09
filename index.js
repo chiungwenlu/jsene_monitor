@@ -336,7 +336,7 @@ app.post('/webhook', async (req, res) => {
                         const now = moment();
 
                         // 設定當天 00:00 作為最早的開始時間
-                        const todayStart = now.startOf('day'); // 當天 00:00
+                        const todayStart = moment().startOf('day'); // 設定當天 00:00
 
                         // 3. 設定抓取範圍，從 Firebase 最新資料的下一筆開始
                         const startTime = moment.max(moment(lastEntryTime).add(1, 'minute'), todayStart);
@@ -453,13 +453,13 @@ async function checkExceedThresholdInRange(station184Data, station185Data) {
     const timeSinceLastAlert = lastAlertTime ? (currentTime - lastAlertTime) / (60 * 1000) : ALERT_INTERVAL + 1; // 轉換為分鐘
 
     console.log('checkExceedThresholdInRange: ');
-    console.log(`PM10_THRESHOLD: ${PM10_THRESHOLD}`);    
-    console.log(`ALERT_INTERVAL: ${ALERT_INTERVAL}`);    
-    console.log(`lastAlertTime: ${lastAlertTime}`);    
-    console.log(`currentTime: ${currentTime}`);    
-    console.log(`timeSinceLastAlert: ${timeSinceLastAlert}`);
-    console.log('station184Data:', station184Data);
-    console.log('station185Data:', station185Data);
+    console.log(`   PM10_THRESHOLD: ${PM10_THRESHOLD}`);    
+    console.log(`   ALERT_INTERVAL: ${ALERT_INTERVAL}`);    
+    console.log(`   lastAlertTime: ${lastAlertTime}`);    
+    console.log(`   currentTime: ${currentTime}`);    
+    console.log(`   timeSinceLastAlert: ${timeSinceLastAlert}`);
+    console.log('   station184Data:', station184Data);
+    console.log('   station185Data:', station185Data);
         
     // 若未超過警告間隔，跳過警告
     if (timeSinceLastAlert < ALERT_INTERVAL) {
