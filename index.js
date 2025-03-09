@@ -508,6 +508,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
     const page = await browser.newPage();
     const url = `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(startDate)}&d2=${encodeURIComponent(endDate)}&tt=T01&f=0&col=1,2,3,9,10,11`;
 
+    console.log('url: ',url);
     await page.goto(url);
 
     // 抓取資料
@@ -523,7 +524,7 @@ async function scrapeStationData(stationId, startDate, endDate) {
     // console.log('rawtime: ',time);
      // 顯示抓取到的數據
      console.log('抓取到的 PM10 Data:', JSON.stringify(pm10Data, null, 2));
-     
+
     await browser.close();
     return pm10Data;
 }
