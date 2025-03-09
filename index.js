@@ -1,6 +1,5 @@
 const express = require("express");
-const puppeteer = require("puppeteer-extra");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
-const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+const puppeteer = require("puppeteer");     // 引入 Puppeteer，用於自動化控制瀏覽器，主要用來抓取PM10數據
 const moment = require('moment-timezone');
 const axios = require('axios');     // 引入 Axios，用來處理HTTP請求，例如與外部API溝通. 主要用於查詢LINE帳戶的訊息發送配額和已使用的訊息數量
 const line = require('@line/bot-sdk');
@@ -8,7 +7,6 @@ const admin = require('firebase-admin');
 const fs = require('fs');   // 引入內建的檔案系統（fs）和路徑（path）模組，用來處理檔案存取、路徑操作（例如保存Cookie、生成檔案下載路徑）
 const path = require('path');
 require("dotenv").config(); // 引入並載入 .env 環境變數文件，用來保存敏感資料（如API金鑰）
-puppeteer.use(StealthPlugin());
 
 const app = express();  // 創建Express應用實例，提供路由及中介軟體的支援
 const PORT = process.env.PORT || 4000;
