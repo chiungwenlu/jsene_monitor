@@ -347,7 +347,7 @@ app.post('/webhook', async (req, res) => {
                         await savePM10DataToFirebase(station184Data, station185Data);
 
                         // 5. 檢查抓取到的資料是否超過閾值
-                        const exceedAlert = checkExceedThresholdInRange(station184Data, station185Data);
+                        const exceedAlert = await checkExceedThresholdInRange(station184Data, station185Data);
                         console.log('exceedAlert.Length: ', exceedAlert.length);
 
                         if (exceedAlert) {
