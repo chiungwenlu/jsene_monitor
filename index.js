@@ -504,7 +504,7 @@ async function getLatestPM10Data() {
 
 // 抓取指定時間範圍內的數據
 async function scrapeStationData(stationId, startDate, endDate) {
-    const browser = await puppeteer.launch({ headless: false });  // 設定 false 以觀察瀏覽器行為
+    const browser = await puppeteer.launch({ headless: true }); 
     const page = await browser.newPage();
     
     // 登入資訊（從 Firebase 讀取或環境變數設定）
