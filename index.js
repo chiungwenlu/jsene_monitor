@@ -283,7 +283,7 @@ async function handleEvent(event) {
         if (latestData) {
             const latestTime = Object.keys(latestData)[0];
             const latestPM10 = latestData[latestTime];
-            replyMessage = ` 📅 時間: ${latestTime}
+            replyMessage = ` 📅 時間: ${latestPM10.time}
 🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
 🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
         } else {
