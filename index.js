@@ -2,13 +2,12 @@ const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const moment = require('moment-timezone');
 const admin = require('firebase-admin');
+const axios = require('axios');
 const line = require('@line/bot-sdk');
 const express = require('express');
-const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const app = express();
-
-app.use(express.json()); // 這行確保 Express 能夠解析 JSON 請求
-app.use(express.urlencoded({ extended: true }));
 
 let scrapeInterval = 10 * 60 * 1000; // 預設為 10 分鐘
 let pm10Threshold = 126; // 預設為 126
@@ -248,6 +247,7 @@ async function loginAndFetchPM10Data() {
         page.waitForNavigation({ waitUntil: 'networkidle2' })
     ]);
 
+    
     console.log('✅ 成功登入，開始抓取數據...');
 
     const { data: station184Data, endTimeTimestamp } = await fetchStationData(page, '3100184');
@@ -275,19 +275,23 @@ const lineConfig = {
 
 const client = new line.Client(lineConfig);
 
-//  ✅ **修正 `/webhook` 以確保 LINE 訊息可正確解析**
-app.post('/webhook', (req, res, next) => {
-    console.log('📩 收到 LINE Webhook 請求:', JSON.stringify(req.body, null, 2));
-    next();
-}, line.middleware(lineConfig), (req, res) => {
-    if (!req.body.events || req.body.events.length === 0) {
-        console.log('⚠️ 未收到任何事件');
-        return res.sendStatus(400);
-    }
-
+// 設定 Webhook 路由
+app.post('/webhook', line.middleware(lineConfig), (req, res) => {
     Promise.all(req.body.events.map(handleEvent))
-        .then(result => res.json(result))
-        .catch(err => console.error('❌ 處理事件時發生錯誤:', err));
+        .then((result) => res.json(result))
+        .catch((err) => console.error(err));
+});
+
+// 確保 `records` 資料夾存在
+const recordsDir = path.join(__dirname, 'records');
+if (!fs.existsSync(recordsDir)) {
+    fs.mkdirSync(recordsDir);
+}
+
+// 設置提供下載文字檔的路由
+app.get('/download/24hr_record.txt', (req, res) => {
+    const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+    res.download(filePath);
 });
 
 // 處理收到的 LINE 訊息
@@ -366,6 +370,50 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }      
 
+    if (receivedMessage === '24小時記錄') {
+        console.log('📥 取得 24 小時記錄');
+
+        // 取得 24 小時內的資料
+        const cutoff = moment().subtract(24, 'hours').valueOf();
+        const snapshot = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
+        const records = snapshot.val();
+
+        if (!records) {
+            replyMessage = '⚠️ 目前沒有可用的 24 小時記錄。';
+            return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+        }
+
+        let recordText = '📡 **PM10 24 小時記錄**\n\n';
+        let alertRecords = [];
+
+        // 生成 24hr_record.txt 檔案內容
+        let fileContent = '時間, 測站184(PM10), 測站185(PM10)\n';
+        for (const [timestamp, data] of Object.entries(records)) {
+            const time = data.time;
+            const station184 = data.station_184 || 'N/A';
+            const station185 = data.station_185 || 'N/A';
+
+            fileContent += `${time}, ${station184}, ${station185}\n`;
+
+            // 如果有數值超過 PM10 閾值，則加入警報記錄
+            if ((station184 !== 'N/A' && station184 > pm10Threshold) || (station185 !== 'N/A' && station185 > pm10Threshold)) {
+                alertRecords.push(`📅 **時間:** ${time}\n🌍 測站184: ${station184} µg/m³\n🌍 測站185: ${station185} µg/m³`);
+            }
+        }
+
+        // 存檔至 /records/24hr_record.txt
+        const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+        fs.writeFileSync(filePath, fileContent, 'utf8');
+
+        // 構建訊息
+        if (alertRecords.length > 0) {
+            recordText += '⚠️ **以下為超過 PM10 閾值的部分:**\n\n' + alertRecords.join('\n\n') + '\n\n';
+        }
+        recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://你的伺服器網址/download/24hr_record.txt)`;
+
+        return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
+    }
+
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
 
@@ -377,8 +425,8 @@ app.listen(PORT, () => {
 
 // 設置 ping 路由接收 pinger-app 的請求
 app.post('/ping', (req, res) => {
-    console.log('來自 pinger-app 的訊息:', req.body); // 確保能夠接收到正確的 `req.body`
-    res.json({ message: 'pong' }); // 正確回應 JSON
+    console.log('來自 pinger-app 的訊息:', req.body);
+    res.json({ message: 'pong' });
 });
 
 // 每10分鐘發送一次請求給pinger-app
