@@ -2,10 +2,12 @@ const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const moment = require('moment-timezone');
 const admin = require('firebase-admin');
-const axios = require('axios');
 const line = require('@line/bot-sdk');
 const express = require('express');
+const axios = require('axios');
 const app = express();
+
+app.use(express.json()); // 這行確保 Express 能夠解析 JSON 請求
 
 let scrapeInterval = 10 * 60 * 1000; // 預設為 10 分鐘
 let pm10Threshold = 126; // 預設為 126
@@ -366,8 +368,8 @@ app.listen(PORT, () => {
 
 // 設置 ping 路由接收 pinger-app 的請求
 app.post('/ping', (req, res) => {
-    console.log('來自 pinger-app 的訊息:', req.body);
-    res.json({ message: 'pong' });
+    console.log('來自 pinger-app 的訊息:', req.body); // 確保能夠接收到正確的 `req.body`
+    res.json({ message: 'pong' }); // 正確回應 JSON
 });
 
 // 每10分鐘發送一次請求給pinger-app
