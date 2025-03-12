@@ -2,7 +2,7 @@ const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const moment = require('moment-timezone');
 const admin = require('firebase-admin');
-
+const axios = require('axios');
 const line = require('@line/bot-sdk');
 const express = require('express');
 const app = express();
