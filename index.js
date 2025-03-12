@@ -193,31 +193,33 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 
     let alertMessages = [];
+    let alertHeader = "🚨 **PM10 超標警報！**\n";
 
     for (const entry of mergedData) {
+        let stationAlerts = [];
+
         if (entry.station_184 && entry.station_184 > pm10Threshold) {
-            const message = `🚨 PM10 超標警報！
-📅 時間: ${entry.time}
-🌍 測站 184 PM10 值：${entry.station_184} µg/m³（超過閾值 ${pm10Threshold}）`;
-            alertMessages.push(message);
-            await updateLastAlertTime(now);
+            stationAlerts.push(`🌍 測站 184 堤外 PM10 值：${entry.station_184} µg/m³`);
         }
         if (entry.station_185 && entry.station_185 > pm10Threshold) {
-            const message = `🚨 PM10 超標警報！
-📅 時間: ${entry.time}
-🌍 測站 185 PM10 值：${entry.station_185} µg/m³（超過閾值 ${pm10Threshold}）`;
-            alertMessages.push(message);
-            await updateLastAlertTime(now);
+            stationAlerts.push(`🌍 測站 185 堤上 PM10 值：${entry.station_185} µg/m³`);
+        }
+
+        if (stationAlerts.length > 0) {
+            alertMessages.push(`📅 **時間:** ${entry.time}\n${stationAlerts.join("\n")}`);
         }
     }
 
     if (alertMessages.length > 0) {
-        for (const msg of alertMessages) {
-            await client.broadcast({ type: 'text', text: msg });
-        }
+        const finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **請啟動水線抑制揚塵**`;
+        console.log(finalAlertMessage);
+
+        await updateLastAlertTime(now); // 更新警告時間
+
+        // 發送合併後的警報訊息到 LINE
+        await client.broadcast({ type: 'text', text: finalAlertMessage });
     }
 }
-
 
 // **🔹 登入並抓取數據**
 async function loginAndFetchPM10Data() {
