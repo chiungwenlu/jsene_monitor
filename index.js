@@ -409,8 +409,8 @@ async function handleEvent(event) {
         if (alertRecords.length > 0) {
             recordText += '⚠️ **以下為超過 PM10 閾值的部分:**\n\n' + alertRecords.join('\n\n') + '\n\n';
         }
-        recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://你的伺服器網址/download/24hr_record.txt)`;
-
+        recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
+        
         return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
     }
 
