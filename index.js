@@ -193,20 +193,20 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 
     let alertMessages = [];
-    let alertHeader = "🚨 **PM10 超標警報！**\n\n";
+    let alertHeader = "🚨 PM10 超標警報！\n\n";
 
     for (const entry of mergedData) {
         let stationAlerts = [];
 
         if (entry.station_184 && entry.station_184 > pm10Threshold) {
-            stationAlerts.push(`🌍 測站 184 堤外 PM10 值：${entry.station_184} µg/m³`);
+            stationAlerts.push(`🌍 測站184堤外PM10值：${entry.station_184} µg/m³`);
         }
         if (entry.station_185 && entry.station_185 > pm10Threshold) {
-            stationAlerts.push(`🌍 測站 185 堤上 PM10 值：${entry.station_185} µg/m³`);
+            stationAlerts.push(`🌍 測站185堤上PM10值：${entry.station_185} µg/m³`);
         }
 
         if (stationAlerts.length > 0) {
-            alertMessages.push(`📅 **時間:** ${entry.time}\n${stationAlerts.join("\n")}`);
+            alertMessages.push(`📅 時間: ${entry.time}\n${stationAlerts.join("\n")}`);
         }
     }
 
@@ -310,11 +310,11 @@ async function handleEvent(event) {
     
             // 如果最新資料的時間與現在時間相符（允許 ±1 分鐘）
             if (timeDiff <= 1) {
-                replyMessage = `📡 **PM10 即時查詢結果**
-    📅 **時間:** ${latestPM10.time}
-    🌍 **184測站:** ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 **185測站:** ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ **PM10 閾值:** ${pm10Threshold} µg/m³`;
+                replyMessage = `📡 PM10即時查詢結果
+    📅 時間: ${latestPM10.time}
+    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
     
                 return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
             }
@@ -343,11 +343,11 @@ async function handleEvent(event) {
         if (newLatestData) {
             const latestPM10 = Object.values(newLatestData)[0];
     
-            replyMessage = `📡 **PM10 即時查詢結果**
-    📅 **時間:** ${latestPM10.time}
-    🌍 **184測站:** ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 **185測站:** ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ **PM10 閾值:** ${pm10Threshold} µg/m³`;
+            replyMessage = `📡 PM10即時查詢結果
+    📅 時間: ${latestPM10.time}
+    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
         } else {
             replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
         }
