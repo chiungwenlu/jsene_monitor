@@ -193,7 +193,7 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 
     let alertMessages = [];
-    let alertHeader = "🚨 **PM10 超標警報！**\n";
+    let alertHeader = "🚨 **PM10 超標警報！**\n\n";
 
     for (const entry of mergedData) {
         let stationAlerts = [];
@@ -211,7 +211,7 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 
     if (alertMessages.length > 0) {
-        const finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **請啟動水線抑制揚塵**`;
+        const finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
         console.log(finalAlertMessage);
 
         await updateLastAlertTime(now); // 更新警告時間
@@ -290,13 +290,17 @@ async function handleEvent(event) {
 
     if (receivedMessage === '即時查詢') {
         console.log('執行即時查詢');
-    
+        
         // 取得 Firebase 最新 PM10 數據
         const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const latestData = snapshot.val();
     
-        const nowTime = moment().tz('Asia/Taipei'); // 定義現在時間
+        // 取得 Firebase 內的當前 PM10 閾值
+        const thresholdSnapshot = await db.ref('settings/PM10_THRESHOLD').once('value');
+        const pm10Threshold = thresholdSnapshot.val() || 126; // 預設為 126
     
+        const nowTime = moment().tz('Asia/Taipei'); // 取得現在時間
+        
         if (latestData) {
             const latestPM10 = Object.values(latestData)[0]; // 取得最新一筆數據
             const latestTime = moment.tz(latestPM10.time, "YYYY/MM/DD HH:mm", "Asia/Taipei"); // 確保格式正確
@@ -306,16 +310,19 @@ async function handleEvent(event) {
     
             // 如果最新資料的時間與現在時間相符（允許 ±1 分鐘）
             if (timeDiff <= 1) {
-                replyMessage = `📅 時間: ${latestPM10.time}
-    🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
+                replyMessage = `📡 **PM10 即時查詢結果**
+    📅 **時間:** ${latestPM10.time}
+    🌍 **184測站:** ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 **185測站:** ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ **PM10 閾值:** ${pm10Threshold} µg/m³`;
+    
                 return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
             }
         }
     
         // 若 Firebase 資料不是最新，則執行網頁爬取
         console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
-    
+        
         // 取得上次抓取的時間
         let lastFetchTime = await getLastFetchTime();
         if (!lastFetchTime) {
@@ -336,15 +343,17 @@ async function handleEvent(event) {
         if (newLatestData) {
             const latestPM10 = Object.values(newLatestData)[0];
     
-            replyMessage = `📅 時間: ${latestPM10.time}
-    🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
+            replyMessage = `📡 **PM10 即時查詢結果**
+    📅 **時間:** ${latestPM10.time}
+    🌍 **184測站:** ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 **185測站:** ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ **PM10 閾值:** ${pm10Threshold} µg/m³`;
         } else {
             replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
         }
     
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-    }   
+    }      
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
@@ -354,6 +363,24 @@ const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`🌐 LINE Bot webhook 監聽中... 端口: ${PORT}`);
 });
+
+// 設置 ping 路由接收 pinger-app 的請求
+app.post('/ping', (req, res) => {
+    console.log('來自 pinger-app 的訊息:', req.body);
+    res.json({ message: 'pong' });
+});
+
+// 每10分鐘發送一次請求給pinger-app
+function sendPing() {
+axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
+    .then(response => {
+    console.log('來自 pinger-app 的回應:', response.data);
+    })
+    .catch(error => {
+    console.error('Error pinging pinger-app:', error);
+    });
+}
+setInterval(sendPing, 10 * 60 * 1000);
 
 // **🔹 啟動流程 **
 loginAndFetchPM10Data();
