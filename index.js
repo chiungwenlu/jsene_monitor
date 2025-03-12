@@ -8,6 +8,7 @@ const axios = require('axios');
 const app = express();
 
 app.use(express.json()); // 這行確保 Express 能夠解析 JSON 請求
+app.use(express.urlencoded({ extended: true }));
 
 let scrapeInterval = 10 * 60 * 1000; // 預設為 10 分鐘
 let pm10Threshold = 126; // 預設為 126
@@ -274,11 +275,19 @@ const lineConfig = {
 
 const client = new line.Client(lineConfig);
 
-// 設定 Webhook 路由
-app.post('/webhook', line.middleware(lineConfig), (req, res) => {
+//  ✅ **修正 `/webhook` 以確保 LINE 訊息可正確解析**
+app.post('/webhook', (req, res, next) => {
+    console.log('📩 收到 LINE Webhook 請求:', JSON.stringify(req.body, null, 2));
+    next();
+}, line.middleware(lineConfig), (req, res) => {
+    if (!req.body.events || req.body.events.length === 0) {
+        console.log('⚠️ 未收到任何事件');
+        return res.sendStatus(400);
+    }
+
     Promise.all(req.body.events.map(handleEvent))
-        .then((result) => res.json(result))
-        .catch((err) => console.error(err));
+        .then(result => res.json(result))
+        .catch(err => console.error('❌ 處理事件時發生錯誤:', err));
 });
 
 // 處理收到的 LINE 訊息
