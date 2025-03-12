@@ -383,7 +383,7 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
         }
 
-        let recordText = '📡 **PM10 24 小時記錄**\n\n';
+        let recordText = '📡 PM10 24 小時記錄\n\n';
         let alertRecords = [];
 
         // 生成 24hr_record.txt 檔案內容
@@ -395,7 +395,7 @@ async function handleEvent(event) {
 
             fileContent += `${time}, ${station184}, ${station185}\n`;
 
-            let alertText = `📅 **時間:** ${time}`;
+            let alertText = `📅 時間: ${time}`;
             let hasAlert = false;
 
             if (station184 !== 'N/A' && station184 > pm10Threshold) {
@@ -419,9 +419,9 @@ async function handleEvent(event) {
 
         // 構建訊息
         if (alertRecords.length > 0) {
-            recordText += '⚠️ **以下為超過 PM10 閾值的部分:**\n\n' + alertRecords.join('\n\n') + '\n\n';
+            recordText += '⚠️ 以下為超過 PM10 閾值的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
         } else {
-            recordText += '✅ **過去 24 小時內無數據超過 PM10 閾值。**\n\n';
+            recordText += '✅ 過去 24 小時內無數據超過 PM10 閾值。\n\n';
         }
         recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
 
