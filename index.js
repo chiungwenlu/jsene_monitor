@@ -277,17 +277,18 @@ async function handleEvent(event) {
 
     if (receivedMessage === '即時查詢') {
         console.log('執行即時查詢');
-        
+    
         // 取得 Firebase 最新 PM10 數據
         const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const latestData = snapshot.val();
-        
+    
+        const nowTime = moment().tz('Asia/Taipei'); // 定義現在時間
+    
         if (latestData) {
             const latestPM10 = Object.values(latestData)[0]; // 取得最新一筆數據
-            const latestTime = moment.tz(latestPM10.time, 'Asia/Taipei'); // 解析時間
-            const nowTime = moment().tz('Asia/Taipei'); // 取得現在時間
+            const latestTime = moment.tz(latestPM10.time, "YYYY/MM/DD HH:mm", "Asia/Taipei"); // 確保格式正確
+    
             const timeDiff = Math.abs(nowTime.diff(latestTime, 'minutes')); // 計算時間差
-            
             console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
     
             // 如果最新資料的時間與現在時間相符（允許 ±1 分鐘）
@@ -301,7 +302,7 @@ async function handleEvent(event) {
     
         // 若 Firebase 資料不是最新，則執行網頁爬取
         console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
-        
+    
         // 取得上次抓取的時間
         let lastFetchTime = await getLastFetchTime();
         if (!lastFetchTime) {
@@ -309,7 +310,7 @@ async function handleEvent(event) {
         } else {
             lastFetchTime = moment(lastFetchTime).tz('Asia/Taipei').format('YYYY/MM/DD HH:mm');
         }
-        
+    
         console.log(`🕒 重新抓取時間範圍: ${lastFetchTime} ~ ${nowTime.format('YYYY/MM/DD HH:mm')}`);
     
         // 執行爬取
@@ -330,7 +331,7 @@ async function handleEvent(event) {
         }
     
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-    }    
+    }   
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
