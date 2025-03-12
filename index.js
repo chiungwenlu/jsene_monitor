@@ -372,13 +372,17 @@ app.post('/ping', (req, res) => {
 
 // 每10分鐘發送一次請求給pinger-app
 function sendPing() {
-axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
-    .then(response => {
-    console.log('來自 pinger-app 的回應:', response.data);
-    })
-    .catch(error => {
-    console.error('Error pinging pinger-app:', error);
-    });
+    axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
+        .then(response => {
+            if (response.data && response.data.message) {
+                console.log('✅ 來自 pinger-app 的回應:', response.data.message);
+            } else {
+                console.log('⚠️ 來自 pinger-app 的回應沒有包含 message 欄位:', response.data);
+            }
+        })
+        .catch(error => {
+            console.error('❌ 無法 ping pinger-app:', error.message);
+        });
 }
 setInterval(sendPing, 10 * 60 * 1000);
 
