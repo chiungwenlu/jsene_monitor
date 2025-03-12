@@ -277,19 +277,60 @@ async function handleEvent(event) {
 
     if (receivedMessage === '即時查詢') {
         console.log('執行即時查詢');
-        // 從 Firebase 取得最新 PM10 數據
+        
+        // 取得 Firebase 最新 PM10 數據
         const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const latestData = snapshot.val();
+        
         if (latestData) {
-            const latestTime = Object.keys(latestData)[0];
-            const latestPM10 = latestData[latestTime];
-            replyMessage = ` 📅 時間: ${latestPM10.time}
-🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
-🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
-        } else {
-            replyMessage = '⚠️ 目前沒有可用的 PM10 數據。';
+            const latestPM10 = Object.values(latestData)[0]; // 取得最新一筆數據
+            const latestTime = moment.tz(latestPM10.time, 'Asia/Taipei'); // 解析時間
+            const nowTime = moment().tz('Asia/Taipei'); // 取得現在時間
+            const timeDiff = Math.abs(nowTime.diff(latestTime, 'minutes')); // 計算時間差
+            
+            console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
+    
+            // 如果最新資料的時間與現在時間相符（允許 ±1 分鐘）
+            if (timeDiff <= 1) {
+                replyMessage = `📅 時間: ${latestPM10.time}
+    🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
+                return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+            }
         }
-    }
+    
+        // 若 Firebase 資料不是最新，則執行網頁爬取
+        console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
+        
+        // 取得上次抓取的時間
+        let lastFetchTime = await getLastFetchTime();
+        if (!lastFetchTime) {
+            lastFetchTime = moment().tz('Asia/Taipei').subtract(scrapeInterval / 60000, 'minutes').format('YYYY/MM/DD HH:mm');
+        } else {
+            lastFetchTime = moment(lastFetchTime).tz('Asia/Taipei').format('YYYY/MM/DD HH:mm');
+        }
+        
+        console.log(`🕒 重新抓取時間範圍: ${lastFetchTime} ~ ${nowTime.format('YYYY/MM/DD HH:mm')}`);
+    
+        // 執行爬取
+        await loginAndFetchPM10Data();
+    
+        // 再次從 Firebase 取得最新一筆數據
+        const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
+        const newLatestData = newSnapshot.val();
+    
+        if (newLatestData) {
+            const latestPM10 = Object.values(newLatestData)[0];
+    
+            replyMessage = `📅 時間: ${latestPM10.time}
+    🌍 184測站：${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 185測站：${latestPM10.station_185 || 'N/A'} µg/m³`;
+        } else {
+            replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
+        }
+    
+        return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+    }    
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
