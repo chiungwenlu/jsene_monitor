@@ -395,9 +395,21 @@ async function handleEvent(event) {
 
             fileContent += `${time}, ${station184}, ${station185}\n`;
 
-            // 如果有數值超過 PM10 閾值，則加入警報記錄
-            if ((station184 !== 'N/A' && station184 > pm10Threshold) || (station185 !== 'N/A' && station185 > pm10Threshold)) {
-                alertRecords.push(`📅 **時間:** ${time}\n🌍 測站184: ${station184} µg/m³\n🌍 測站185: ${station185} µg/m³`);
+            let alertText = `📅 **時間:** ${time}`;
+            let hasAlert = false;
+
+            if (station184 !== 'N/A' && station184 > pm10Threshold) {
+                alertText += `\n🌍 測站184: ${station184} µg/m³`;
+                hasAlert = true;
+            }
+            if (station185 !== 'N/A' && station185 > pm10Threshold) {
+                alertText += `\n🌍 測站185: ${station185} µg/m³`;
+                hasAlert = true;
+            }
+
+            // 只有當至少一個測站超標時，才加入記錄
+            if (hasAlert) {
+                alertRecords.push(alertText);
             }
         }
 
@@ -408,9 +420,11 @@ async function handleEvent(event) {
         // 構建訊息
         if (alertRecords.length > 0) {
             recordText += '⚠️ **以下為超過 PM10 閾值的部分:**\n\n' + alertRecords.join('\n\n') + '\n\n';
+        } else {
+            recordText += '✅ **過去 24 小時內無數據超過 PM10 閾值。**\n\n';
         }
         recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
-        
+
         return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
     }
 
