@@ -192,21 +192,32 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
         return;
     }
 
+    let alertMessages = [];
+
     for (const entry of mergedData) {
         if (entry.station_184 && entry.station_184 > pm10Threshold) {
-            console.log(
-                `🚨 警告！時間: ${entry.time}，測站 184 PM10 值 ${entry.station_184} 超過閾值 ${pm10Threshold}！`
-            );
+            const message = `🚨 PM10 超標警報！
+📅 時間: ${entry.time}
+🌍 測站 184 PM10 值：${entry.station_184} µg/m³（超過閾值 ${pm10Threshold}）`;
+            alertMessages.push(message);
             await updateLastAlertTime(now);
         }
         if (entry.station_185 && entry.station_185 > pm10Threshold) {
-            console.log(
-                `🚨 警告！時間: ${entry.time}，測站 185 PM10 值 ${entry.station_185} 超過閾值 ${pm10Threshold}！`
-            );
+            const message = `🚨 PM10 超標警報！
+📅 時間: ${entry.time}
+🌍 測站 185 PM10 值：${entry.station_185} µg/m³（超過閾值 ${pm10Threshold}）`;
+            alertMessages.push(message);
             await updateLastAlertTime(now);
         }
     }
+
+    if (alertMessages.length > 0) {
+        for (const msg of alertMessages) {
+            await client.broadcast({ type: 'text', text: msg });
+        }
+    }
 }
+
 
 // **🔹 登入並抓取數據**
 async function loginAndFetchPM10Data() {
