@@ -266,6 +266,35 @@ async function loginAndFetchPM10Data() {
     await saveToFirebase(mergedData, endTimeTimestamp);
 }
 
+// 查詢當前帳戶剩餘的訊息發送配額
+async function getMessageQuota() {
+    try {
+        const response = await axios.get('https://api.line.me/v2/bot/message/quota', {
+            headers: {
+                'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('❌ 查詢訊息配額失敗:', error.response ? error.response.data : error.message);
+        return null;
+    }
+}
+
+// 查詢已使用的訊息發送數量
+async function getMessageQuotaConsumption() {
+    try {
+        const response = await axios.get('https://api.line.me/v2/bot/message/quota/consumption', {
+            headers: {
+                'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('❌ 查詢訊息消耗失敗:', error.response ? error.response.data : error.message);
+        return null;
+    }
+}
 
 // 設置LINE Messaging API客戶端的配置
 const lineConfig = {
@@ -426,6 +455,23 @@ async function handleEvent(event) {
         recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
 
         return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
+    }
+
+    if (receivedMessage === '訊息配額') {
+        console.log('📡 查詢 LINE 訊息發送配額...');
+        
+        const quota = await getMessageQuota();
+        const consumption = await getMessageQuotaConsumption();
+
+        if (!quota || !consumption) {
+            replyMessage = '⚠️ 無法查詢 LINE 訊息配額，請稍後再試。';
+        } else {
+            replyMessage = `📊 **LINE 訊息發送狀態**\n\n` +
+                           `📩 剩餘訊息數量: **${quota.value === -1 ? '無限' : quota.value}**\n` +
+                           `📤 已使用訊息數量: **${consumption.totalUsage}**`;
+        }
+
+        return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
