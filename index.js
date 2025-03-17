@@ -484,6 +484,23 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
 
+    // 新增：當使用者發送「使用者」時，回覆 users 中的使用者數量及各使用者的名稱
+    if (receivedMessage === '使用者') {
+        try {
+            const snapshot = await db.ref('users').once('value');
+            const usersData = snapshot.val() || {};
+            const userCount = Object.keys(usersData).length;
+            let userListText = `總使用者數量：${userCount}\n\n`;
+            for (const userId in usersData) {
+                const user = usersData[userId];
+                userListText += `${user.displayName}\n`;
+            }
+            return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
+        } catch (err) {
+            return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
+        }
+    }
+
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
 
