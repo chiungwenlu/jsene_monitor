@@ -484,7 +484,7 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
 
-    // 新增：當使用者發送「使用者」時，回覆 users 中的使用者數量及各使用者的名稱
+    // 調整這裡：改用 user.name，若沒有則顯示「未知使用者」
     if (receivedMessage === '使用者') {
         try {
             const snapshot = await db.ref('users').once('value');
@@ -493,7 +493,9 @@ async function handleEvent(event) {
             let userListText = `總使用者數量：${userCount}\n\n`;
             for (const userId in usersData) {
                 const user = usersData[userId];
-                userListText += `${user.displayName}\n`;
+                // 若 user.name 不存在，預設為「未知使用者」
+                const userName = user.name || '未知使用者';
+                userListText += `${userName}\n`;
             }
             return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
         } catch (err) {
