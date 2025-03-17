@@ -50,6 +50,17 @@ async function updateLastFetchTime(timestamp) {
     await db.ref('settings/last_fetch_time').set(timestamp);
 }
 
+// **🔹 取得 Firebase 記錄的上次抓取失敗警示時間**
+async function getLastFetchAlertTime() {
+    const snapshot = await db.ref('settings/last_fetch_alert_time').once('value');
+    return snapshot.val() || null;
+}
+
+// **🔹 更新 Firebase 的上次抓取失敗警示時間**
+async function updateLastFetchAlertTime(timestamp) {
+    await db.ref('settings/last_fetch_alert_time').set(timestamp);
+}
+
 // **🔹 監聽 SCRAPE_INTERVAL 變更**
 function monitorScrapeInterval() {
     db.ref('settings/SCRAPE_INTERVAL').on('value', (snapshot) => {
@@ -247,7 +258,6 @@ async function loginAndFetchPM10Data() {
         page.waitForNavigation({ waitUntil: 'networkidle2' })
     ]);
 
-    
     console.log('✅ 成功登入，開始抓取數據...');
 
     const { data: station184Data, endTimeTimestamp } = await fetchStationData(page, '3100184');
@@ -264,6 +274,28 @@ async function loginAndFetchPM10Data() {
 
     await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
     await saveToFirebase(mergedData, endTimeTimestamp);
+}
+
+// **🔹 檢查抓取狀態，若失敗超過12小時則發出警示**
+async function checkFetchStatus() {
+    const now = moment().tz('Asia/Taipei').valueOf();
+    const lastFetchTime = await getLastFetchTime();
+
+    // 若上次抓取時間不存在或超過12小時未更新
+    if (!lastFetchTime || now - lastFetchTime > 12 * 60 * 60 * 1000) {
+        const lastFetchAlertTime = await getLastFetchAlertTime();
+        // 檢查是否在12小時內已發送過抓取失敗的警示
+        if (!lastFetchAlertTime || now - lastFetchAlertTime > 12 * 60 * 60 * 1000) {
+            const alertMessage = "⚠️ 警告：數據抓取失敗已超過12小時，請檢查系統狀態！";
+            console.log(alertMessage);
+            await client.broadcast({ type: 'text', text: alertMessage });
+            await updateLastFetchAlertTime(now);
+        } else {
+            console.log("在最近12小時內已發送過抓取失敗警示。");
+        }
+    } else {
+        console.log("數據抓取狀態正常。");
+    }
 }
 
 // 查詢當前帳戶剩餘的訊息發送配額
@@ -489,7 +521,7 @@ app.post('/ping', (req, res) => {
     res.json({ message: 'pong' });
 });
 
-// 每10分鐘發送一次請求給pinger-app
+// 每10分鐘發送一次請求給 pinger-app
 function sendPing() {
     axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
         .then(response => {
@@ -504,6 +536,9 @@ function sendPing() {
         });
 }
 setInterval(sendPing, 10 * 60 * 1000);
+
+// 設置抓取狀態檢查，每60分鐘執行一次
+setInterval(checkFetchStatus, 60 * 60 * 1000);
 
 // **🔹 啟動流程 **
 loginAndFetchPM10Data();
