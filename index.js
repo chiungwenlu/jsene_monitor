@@ -165,8 +165,6 @@ async function pruneOldData() {
     const cutoff = moment().subtract(24, 'hours').valueOf();
     const dataRef = db.ref('pm10_records');
 
-    // 因為您把 timestamp 當作 key（字串形式），可用 orderByKey 搭配 endAt
-    // 若確認資料庫中有額外欄位可排序，也可考慮改用 orderByChild('timestamp')
     const snapshot = await dataRef.orderByKey().endAt(cutoff.toString()).once('value');
     snapshot.forEach((childSnapshot) => {
         childSnapshot.ref.remove();
@@ -224,10 +222,12 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 
     if (alertMessages.length > 0) {
-        const finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
+        let finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
+        // 附加剩餘免費廣播訊息數量資訊（若不足）
+        finalAlertMessage = await appendQuotaInfo(finalAlertMessage);
         console.log(finalAlertMessage);
 
-        await updateLastAlertTime(now); // 更新警告時間
+        await updateLastAlertTime(now);
 
         // 發送合併後的警報訊息到 LINE
         await client.broadcast({ type: 'text', text: finalAlertMessage });
@@ -281,12 +281,11 @@ async function checkFetchStatus() {
     const now = moment().tz('Asia/Taipei').valueOf();
     const lastFetchTime = await getLastFetchTime();
 
-    // 若上次抓取時間不存在或超過12小時未更新
     if (!lastFetchTime || now - lastFetchTime > 12 * 60 * 60 * 1000) {
         const lastFetchAlertTime = await getLastFetchAlertTime();
-        // 檢查是否在12小時內已發送過抓取失敗的警示
         if (!lastFetchAlertTime || now - lastFetchAlertTime > 12 * 60 * 60 * 1000) {
-            const alertMessage = "⚠️ 警告：數據抓取失敗已超過12小時，請檢查系統狀態！";
+            let alertMessage = "⚠️ 警告：數據抓取失敗已超過12小時，請檢查系統狀態！";
+            alertMessage = await appendQuotaInfo(alertMessage);
             console.log(alertMessage);
             await client.broadcast({ type: 'text', text: alertMessage });
             await updateLastFetchAlertTime(now);
@@ -298,7 +297,7 @@ async function checkFetchStatus() {
     }
 }
 
-// 查詢當前帳戶剩餘的訊息發送配額
+// 查詢當前帳戶剩餘的免費廣播訊息數量
 async function getMessageQuota() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota', {
@@ -313,7 +312,7 @@ async function getMessageQuota() {
     }
 }
 
-// 查詢已使用的訊息發送數量
+// 查詢已使用的免費廣播訊息數量
 async function getMessageQuotaConsumption() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota/consumption', {
@@ -326,6 +325,22 @@ async function getMessageQuotaConsumption() {
         console.error('❌ 查詢訊息消耗失敗:', error.response ? error.response.data : error.message);
         return null;
     }
+}
+
+// **🔹 附加免費廣播訊息數量資訊（若剩餘數量小於等於10）**
+async function appendQuotaInfo(messageText) {
+    const quota = await getMessageQuota();
+    const consumption = await getMessageQuotaConsumption();
+    if (quota && consumption && quota.value !== -1) {
+        const remaining = quota.value - consumption.totalUsage;
+        if (remaining <= 10) {
+            messageText += `\n\n免費廣播訊息數量: **${quota.value}**\n`;
+            messageText += `已使用訊息數量: **${consumption.totalUsage}**\n`;
+            messageText += `剩餘免費訊息數量: **${remaining}**\n`;
+            messageText += `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
+        }
+    }
+    return messageText;
 }
 
 // 設置LINE Messaging API客戶端的配置
@@ -384,22 +399,20 @@ async function handleEvent(event) {
             const timeDiff = Math.abs(nowTime.diff(latestTime, 'minutes')); // 計算時間差
             console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
     
-            // 如果最新資料的時間與現在時間相符（允許 ±1 分鐘）
             if (timeDiff <= 1) {
                 replyMessage = `📡 PM10即時查詢結果
-    📅 時間: ${latestPM10.time}
-    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
-    
+📅 時間: ${latestPM10.time}
+🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+                
+                replyMessage = await appendQuotaInfo(replyMessage);
                 return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
             }
         }
     
-        // 若 Firebase 資料不是最新，則執行網頁爬取
         console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
         
-        // 取得上次抓取的時間
         let lastFetchTime = await getLastFetchTime();
         if (!lastFetchTime) {
             lastFetchTime = moment().tz('Asia/Taipei').subtract(scrapeInterval / 60000, 'minutes').format('YYYY/MM/DD HH:mm');
@@ -409,10 +422,8 @@ async function handleEvent(event) {
     
         console.log(`🕒 重新抓取時間範圍: ${lastFetchTime} ~ ${nowTime.format('YYYY/MM/DD HH:mm')}`);
     
-        // 執行爬取
         await loginAndFetchPM10Data();
     
-        // 再次從 Firebase 取得最新一筆數據
         const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const newLatestData = newSnapshot.val();
     
@@ -420,34 +431,33 @@ async function handleEvent(event) {
             const latestPM10 = Object.values(newLatestData)[0];
     
             replyMessage = `📡 PM10即時查詢結果
-    📅 時間: ${latestPM10.time}
-    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+📅 時間: ${latestPM10.time}
+🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
         } else {
             replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
         }
     
+        replyMessage = await appendQuotaInfo(replyMessage);
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }      
 
     if (receivedMessage === '24小時記錄') {
         console.log('📥 取得 24 小時記錄');
 
-        // 取得 24 小時內的資料
         const cutoff = moment().subtract(24, 'hours').valueOf();
         const snapshot = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
         const records = snapshot.val();
 
         if (!records) {
             replyMessage = '⚠️ 目前沒有可用的 24 小時記錄。';
+            replyMessage = await appendQuotaInfo(replyMessage);
             return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
         }
 
         let recordText = '📡 PM10 24 小時記錄\n\n';
         let alertRecords = [];
-
-        // 生成 24hr_record.txt 檔案內容
         let fileContent = '時間, 測站184(PM10), 測站185(PM10)\n';
         for (const [timestamp, data] of Object.entries(records)) {
             const time = data.time;
@@ -468,24 +478,22 @@ async function handleEvent(event) {
                 hasAlert = true;
             }
 
-            // 只有當至少一個測站超標時，才加入記錄
             if (hasAlert) {
                 alertRecords.push(alertText);
             }
         }
 
-        // 存檔至 /records/24hr_record.txt
         const filePath = path.join(__dirname, 'records', '24hr_record.txt');
         fs.writeFileSync(filePath, fileContent, 'utf8');
 
-        // 構建訊息
         if (alertRecords.length > 0) {
             recordText += '⚠️ 以下為超過 PM10 閾值的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
         } else {
             recordText += '✅ 過去 24 小時內無數據超過 PM10 閾值。\n\n';
         }
         recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
-
+        
+        recordText = await appendQuotaInfo(recordText);
         return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
     }
 
@@ -499,7 +507,7 @@ async function handleEvent(event) {
             replyMessage = '⚠️ 無法查詢 LINE 訊息配額，請稍後再試。';
         } else {
             replyMessage = `📊 **LINE 訊息發送狀態**\n\n` +
-                           `📩 剩餘訊息數量: **${quota.value === -1 ? '無限' : quota.value}**\n` +
+                           `📩 免費廣播訊息數量: **${quota.value === -1 ? '無限' : quota.value}**\n` +
                            `📤 已使用訊息數量: **${consumption.totalUsage}**`;
         }
 
