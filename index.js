@@ -556,6 +556,40 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
         }
     }
+    if (message === '顯示常用指令') {
+        client.replyMessage(event.replyToken, {
+          type: 'text',
+          text: '請選擇要執行的功能：',
+          quickReply: {
+              items: [
+                  {
+                      type: 'action',
+                      action: {
+                          type: 'message',
+                          label: '查詢使用者',
+                          text: '使用者'
+                      }
+                  },
+                  {
+                      type: 'action',
+                      action: {
+                          type: 'message',
+                          label: '查詢訊息配額',
+                          text: '訊息配額'
+                      }
+                  },                  
+                  {
+                      type: 'action',
+                      action: {
+                          type: 'uri',
+                          label: '前往Juno雲端數據資料中心',
+                          uri: 'https://www.jsene.com/juno/Login.aspx'
+                      }
+                  }
+              ]
+          }
+        })
+    }
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
