@@ -379,6 +379,62 @@ async function handleEvent(event) {
     const receivedMessage = event.message.text;
     let replyMessage = '';
 
+    // 取得使用者 ID
+    const userId = event.source.userId;
+
+    // 檢查使用者的等待設定狀態（記錄在 Firebase 的 users/{userId}/waitingForSetting）
+    let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
+    let waitingForSetting = waitingSnapshot.val() || null;
+    const recognizedCommands = ["即時查詢", "24小時記錄", "訊息配額", "設定PM10閾值", "超閾值警報間隔", "顯示常用指令", "取消", "使用者"];
+
+    if (waitingForSetting !== null) {
+        if (receivedMessage === "取消") {
+            // 使用者輸入「取消」，清除等待狀態
+            await db.ref(`users/${userId}/waitingForSetting`).remove();
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '已取消設定。'
+            });
+        } else if (recognizedCommands.includes(receivedMessage)) {
+            // 若收到其他指令，則先清除等待狀態，再處理新指令
+            await db.ref(`users/${userId}/waitingForSetting`).remove();
+        } else {
+            // 處於等待狀態，且收到的訊息不是預設指令
+            if (waitingForSetting === "PM10_THRESHOLD") {
+                const newValue = Number(receivedMessage);
+                if (isNaN(newValue)) {
+                    await db.ref(`users/${userId}/waitingForSetting`).remove();
+                    return client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '輸入錯誤，PM10 閾值必須為數字，維持原設定並離開。'
+                    });
+                }
+                await db.ref('settings/PM10_THRESHOLD').set(newValue);
+                await db.ref(`users/${userId}/waitingForSetting`).remove();
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: `已將 PM10 閾值設定為 ${newValue}`
+                });
+            } else if (waitingForSetting === "ALERT_INTERVAL") {
+                const newValue = Number(receivedMessage);
+                if (isNaN(newValue) || newValue < 30 || newValue > 240) {
+                    await db.ref(`users/${userId}/waitingForSetting`).remove();
+                    return client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: '輸入錯誤，超閾值警報間隔必須為 30~240 之間的數字，維持原設定並離開。'
+                    });
+                }
+                await db.ref('settings/ALERT_INTERVAL').set(newValue);
+                await db.ref(`users/${userId}/waitingForSetting`).remove();
+                return client.replyMessage(event.replyToken, {
+                    type: 'text',
+                    text: `已將超閾值警報間隔設定為 ${newValue} 分鐘`
+                });
+            }
+        }
+    }
+
+    // 處理一般指令
     if (receivedMessage === '即時查詢') {
         console.log('執行即時查詢');
         const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
@@ -391,10 +447,10 @@ async function handleEvent(event) {
             console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
             if (timeDiff <= 1) {
                 replyMessage = `📡 PM10即時查詢結果
-    📅 時間: ${latestPM10.time}
-    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+📅 時間: ${latestPM10.time}
+🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                 
                 // 加入 24 小時內超過閾值的檢查
                 const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -438,10 +494,10 @@ async function handleEvent(event) {
         if (newLatestData) {
             const latestPM10 = Object.values(newLatestData)[0];
             replyMessage = `📡 PM10即時查詢結果
-    📅 時間: ${latestPM10.time}
-    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+📅 時間: ${latestPM10.time}
+🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
             
             // 同樣加入 24 小時內超過閾值的檢查
             const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -479,8 +535,7 @@ async function handleEvent(event) {
         replyMessage = await appendQuotaInfo(replyMessage);
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
-   
-    if (receivedMessage === '24小時記錄') {
+    else if (receivedMessage === '24小時記錄') {
         console.log('📥 取得 24 小時記錄');
         const cutoff = moment().subtract(24, 'hours').valueOf();
         const snapshot = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
@@ -523,8 +578,7 @@ async function handleEvent(event) {
         recordText = await appendQuotaInfo(recordText);
         return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
     }
-
-    if (receivedMessage === '訊息配額') {
+    else if (receivedMessage === '查詢訊息配額') {
         console.log('📡 查詢 LINE 訊息發送配額...');
         const quota = await getMessageQuota();
         const consumption = await getMessageQuotaConsumption();
@@ -537,9 +591,65 @@ async function handleEvent(event) {
         }
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
-
-    // 調整這裡：改用 user.name，若沒有則顯示「未知使用者」
-    if (receivedMessage === '使用者') {
+    else if (receivedMessage === '設定PM10閾值') {
+        await db.ref(`users/${userId}/waitingForSetting`).set("PM10_THRESHOLD");
+        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的 PM10 閾值 (數字)：' });
+    }
+    else if (receivedMessage === '超閾值警報間隔') {
+        await db.ref(`users/${userId}/waitingForSetting`).set("ALERT_INTERVAL");
+        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘) ：' });
+    }
+    else if (receivedMessage === '顯示常用指令') {
+        client.replyMessage(event.replyToken, {
+            type: 'text',
+            text: '請選擇要執行的功能：',
+            quickReply: {
+                items: [
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '查詢使用者',
+                            text: '使用者'
+                        }
+                    },
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '查詢訊息配額',
+                            text: '查詢訊息配額'
+                        }
+                    },
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '設定PM10閾值',
+                            text: '設定PM10閾值'
+                        }
+                    },
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '超閾值警報間隔(分鐘)',
+                            text: '超閾值警報間隔(分鐘)'
+                        }
+                    },
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'uri',
+                            label: '前往Juno雲端數據中心',
+                            uri: 'https://www.jsene.com/juno/Login.aspx'
+                        }
+                    }
+                ]
+            }
+        });
+    }
+    else if (receivedMessage === '使用者') {
         try {
             const snapshot = await db.ref('users').once('value');
             const usersData = snapshot.val() || {};
@@ -547,7 +657,6 @@ async function handleEvent(event) {
             let userListText = `總使用者數量：${userCount}\n\n`;
             for (const userId in usersData) {
                 const user = usersData[userId];
-                // 若 user.name 不存在，預設為「未知使用者」
                 const userName = user.name || '未知使用者';
                 userListText += `${userName}\n`;
             }
@@ -556,43 +665,10 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
         }
     }
-    if (receivedMessage === '顯示常用指令') {
-        client.replyMessage(event.replyToken, {
-          type: 'text',
-          text: '請選擇要執行的功能：',
-          quickReply: {
-              items: [
-                  {
-                      type: 'action',
-                      action: {
-                          type: 'message',
-                          label: '查詢使用者',
-                          text: '使用者'
-                      }
-                  },
-                  {
-                      type: 'action',
-                      action: {
-                          type: 'message',
-                          label: '查詢訊息配額',
-                          text: '訊息配額'
-                      }
-                  },                  
-                  {
-                      type: 'action',
-                      action: {
-                          type: 'uri',
-                          label: '前往Juno雲端數據資料中心',
-                          uri: 'https://www.jsene.com/juno/Login.aspx'
-                      }
-                  }
-              ]
-          }
-        })
-    }
 
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
+
 
 // ----------------------- Express 路由與定時排程 -----------------------
 
