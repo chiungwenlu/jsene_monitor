@@ -556,7 +556,7 @@ async function handleEvent(event) {
             return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
         }
     }
-    if (message === '顯示常用指令') {
+    if (receivedMessage === '顯示常用指令') {
         client.replyMessage(event.replyToken, {
           type: 'text',
           text: '請選擇要執行的功能：',
