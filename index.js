@@ -24,48 +24,40 @@ const db = admin.database();
 
 // ----------------------- Firebase 設定相關函式 -----------------------
 
-// 取得 Firebase 設定
 async function getFirebaseSettings() {
     const snapshot = await db.ref('settings').once('value');
     return snapshot.val() || {};
 }
 
-// 取得上次警告時間
 async function getLastAlertTime() {
     const snapshot = await db.ref('settings/last_alert_time').once('value');
     return snapshot.val() || null;
 }
 
-// 更新上次警告時間
 async function updateLastAlertTime(timestamp) {
     await db.ref('settings/last_alert_time').set(timestamp);
 }
 
-// 取得上次抓取時間
 async function getLastFetchTime() {
     const snapshot = await db.ref('settings/last_fetch_time').once('value');
     return snapshot.val() || null;
 }
 
-// 更新上次抓取時間
 async function updateLastFetchTime(timestamp) {
     await db.ref('settings/last_fetch_time').set(timestamp);
 }
 
-// 取得上次抓取失敗警示時間
 async function getLastFetchAlertTime() {
     const snapshot = await db.ref('settings/last_fetch_alert_time').once('value');
     return snapshot.val() || null;
 }
 
-// 更新上次抓取失敗警示時間
 async function updateLastFetchAlertTime(timestamp) {
     await db.ref('settings/last_fetch_alert_time').set(timestamp);
 }
 
 // ----------------------- 設定監聽與排程相關函式 -----------------------
 
-// 監聽 SCRAPE_INTERVAL 變更
 function monitorScrapeInterval() {
     db.ref('settings/SCRAPE_INTERVAL').on('value', (snapshot) => {
         const newInterval = snapshot.val() * 60 * 1000;
@@ -77,7 +69,6 @@ function monitorScrapeInterval() {
     });
 }
 
-// 監聽 PM10_THRESHOLD 變更
 function monitorPM10Threshold() {
     db.ref('settings/PM10_THRESHOLD').on('value', (snapshot) => {
         const newThreshold = snapshot.val();
@@ -88,7 +79,6 @@ function monitorPM10Threshold() {
     });
 }
 
-// 監聽 ALERT_INTERVAL 變更
 function monitorAlertInterval() {
     db.ref('settings/ALERT_INTERVAL').on('value', (snapshot) => {
         const newInterval = snapshot.val();
@@ -99,7 +89,6 @@ function monitorAlertInterval() {
     });
 }
 
-// 重新啟動數據抓取定時器
 function restartFetchInterval() {
     if (fetchInterval) {
         clearInterval(fetchInterval);
@@ -111,27 +100,22 @@ function restartFetchInterval() {
 
 // ----------------------- PM10 數據抓取與處理相關函式 -----------------------
 
-// 取得動態時間範圍
 async function getDynamicDataURL(stationId) {
     const now = moment().tz('Asia/Taipei');
     const endTime = now.format('YYYY/MM/DD HH:mm');
-
     let lastFetchTime = await getLastFetchTime();
     if (!lastFetchTime) {
         lastFetchTime = now.clone().subtract(scrapeInterval / 60000, 'minutes').format('YYYY/MM/DD HH:mm');
     } else {
         lastFetchTime = moment(lastFetchTime).tz('Asia/Taipei').format('YYYY/MM/DD HH:mm');
     }
-
     console.log(`🕒 測站 ${stationId} 目標時間範圍 (UTC+8): ${lastFetchTime} ~ ${endTime}`);
-
     return {
         url: `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(lastFetchTime)}&d2=${encodeURIComponent(endTime)}&tt=T01&f=0&col=1,2,3,9,10,11`,
         endTimeTimestamp: now.valueOf()
     };
 }
 
-// 抓取特定測站的數據
 async function fetchStationData(page, stationId) {
     console.log(`📊 嘗試抓取測站 ${stationId} 的數據...`);
     const { url, endTimeTimestamp } = await getDynamicDataURL(stationId);
@@ -151,7 +135,6 @@ async function fetchStationData(page, stationId) {
     return { data: pm10Data, endTimeTimestamp };
 }
 
-// 檢查並刪除超過 24 小時的舊資料
 async function pruneOldData() {
     const cutoff = moment().subtract(24, 'hours').valueOf();
     const dataRef = db.ref('pm10_records');
@@ -162,7 +145,6 @@ async function pruneOldData() {
     console.log(`✅ 已刪除超過 24 小時前的舊資料（截止時間戳：${cutoff}）。`);
 }
 
-// 存入 Firebase
 async function saveToFirebase(mergedData, lastTimestamp) {
     const dataRef = db.ref('pm10_records');
     for (const entry of mergedData) {
@@ -178,7 +160,6 @@ async function saveToFirebase(mergedData, lastTimestamp) {
     await pruneOldData();
 }
 
-// 檢查 PM10 是否超過閾值
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
     const lastAlertTime = await getLastAlertTime();
@@ -209,7 +190,6 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     }
 }
 
-// 登入並抓取數據
 async function loginAndFetchPM10Data() {
     console.log('🔑 啟動瀏覽器並登入...');
     const browser = await puppeteer.launch({ headless: true });
@@ -239,7 +219,6 @@ async function loginAndFetchPM10Data() {
     await saveToFirebase(mergedData, endTimeTimestamp);
 }
 
-// 檢查抓取狀態，若失敗超過12小時則發出警示
 async function checkFetchStatus() {
     const now = moment().tz('Asia/Taipei').valueOf();
     const lastFetchTime = await getLastFetchTime();
@@ -259,7 +238,6 @@ async function checkFetchStatus() {
     }
 }
 
-// 查詢當前帳戶剩餘的免費廣播訊息數量
 async function getMessageQuota() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota', {
@@ -274,7 +252,6 @@ async function getMessageQuota() {
     }
 }
 
-// 查詢已使用的免費廣播訊息數量
 async function getMessageQuotaConsumption() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota/consumption', {
@@ -289,7 +266,6 @@ async function getMessageQuotaConsumption() {
     }
 }
 
-// 附加免費廣播訊息數量資訊（若剩餘數量小於等於10）
 async function appendQuotaInfo(messageText) {
     const quota = await getMessageQuota();
     const consumption = await getMessageQuotaConsumption();
@@ -307,7 +283,6 @@ async function appendQuotaInfo(messageText) {
 
 // ----------------------- 使用者資料相關功能 -----------------------
 
-// 監聽 follow 事件，當有新使用者加入時，將其資訊存入 Firebase 的 users 節點
 async function handleFollowEvent(event) {
     const userId = event.source.userId;
     try {
@@ -329,7 +304,6 @@ async function handleFollowEvent(event) {
     });
 }
 
-// 每天自動更新所有使用者資料
 async function updateAllUserProfiles() {
     try {
         const snapshot = await db.ref('users').once('value');
@@ -364,42 +338,33 @@ const lineConfig = {
 
 const client = new line.Client(lineConfig);
 
-// 處理收到的 LINE 事件
 async function handleEvent(event) {
-    // 若為 follow 事件（新使用者加入）
     if (event.type === 'follow') {
         return handleFollowEvent(event);
     }
-
-    // 若事件不是 message 事件，直接略過
     if (event.type !== 'message' || event.message.type !== 'text') {
         return Promise.resolve(null);
     }
-
     const receivedMessage = event.message.text;
     let replyMessage = '';
-
-    // 取得使用者 ID
     const userId = event.source.userId;
 
-    // 檢查使用者的等待設定狀態（記錄在 Firebase 的 users/{userId}/waitingForSetting）
+    // 檢查使用者等待設定狀態（存於 Firebase users/{userId}/waitingForSetting）
     let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
     let waitingForSetting = waitingSnapshot.val() || null;
-    const recognizedCommands = ["即時查詢", "24小時記錄", "訊息配額", "設定PM10閾值", "超閾值警報間隔", "顯示常用指令", "取消", "使用者"];
+    const recognizedCommands = ["即時查詢", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
 
     if (waitingForSetting !== null) {
         if (receivedMessage === "取消") {
-            // 使用者輸入「取消」，清除等待狀態
             await db.ref(`users/${userId}/waitingForSetting`).remove();
             return client.replyMessage(event.replyToken, {
                 type: 'text',
                 text: '已取消設定。'
             });
         } else if (recognizedCommands.includes(receivedMessage)) {
-            // 若收到其他指令，則先清除等待狀態，再處理新指令
+            // 若收到其他預設指令，先清除等待狀態，再進入新指令流程
             await db.ref(`users/${userId}/waitingForSetting`).remove();
         } else {
-            // 處於等待狀態，且收到的訊息不是預設指令
             if (waitingForSetting === "PM10_THRESHOLD") {
                 const newValue = Number(receivedMessage);
                 if (isNaN(newValue)) {
@@ -452,7 +417,6 @@ async function handleEvent(event) {
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                 
-                // 加入 24 小時內超過閾值的檢查
                 const cutoff = moment().subtract(24, 'hours').valueOf();
                 const snapshot24 = await db.ref('pm10_records')
                                             .orderByKey()
@@ -499,7 +463,6 @@ async function handleEvent(event) {
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
             
-            // 同樣加入 24 小時內超過閾值的檢查
             const cutoff = moment().subtract(24, 'hours').valueOf();
             const snapshot24 = await db.ref('pm10_records')
                                         .orderByKey()
@@ -595,12 +558,12 @@ async function handleEvent(event) {
         await db.ref(`users/${userId}/waitingForSetting`).set("PM10_THRESHOLD");
         return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的 PM10 閾值 (數字)：' });
     }
-    else if (receivedMessage === '超閾值警報間隔') {
+    else if (receivedMessage === '超閾值警報間隔(分鐘)') {
         await db.ref(`users/${userId}/waitingForSetting`).set("ALERT_INTERVAL");
-        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘) ：' });
+        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘)：' });
     }
     else if (receivedMessage === '顯示常用指令') {
-        client.replyMessage(event.replyToken, {
+        return client.replyMessage(event.replyToken, {
             type: 'text',
             text: '請選擇要執行的功能：',
             quickReply: {
@@ -655,8 +618,8 @@ async function handleEvent(event) {
             const usersData = snapshot.val() || {};
             const userCount = Object.keys(usersData).length;
             let userListText = `總使用者數量：${userCount}\n\n`;
-            for (const userId in usersData) {
-                const user = usersData[userId];
+            for (const uid in usersData) {
+                const user = usersData[uid];
                 const userName = user.name || '未知使用者';
                 userListText += `${userName}\n`;
             }
@@ -669,35 +632,29 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
 }
 
-
 // ----------------------- Express 路由與定時排程 -----------------------
 
-// 確保 records 資料夾存在
 const recordsDir = path.join(__dirname, 'records');
 if (!fs.existsSync(recordsDir)) {
     fs.mkdirSync(recordsDir);
 }
 
-// 提供下載 24hr_record.txt 的路由
 app.get('/download/24hr_record.txt', (req, res) => {
     const filePath = path.join(__dirname, 'records', '24hr_record.txt');
     res.download(filePath);
 });
 
-// 設定 LINE Webhook 路由
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
     Promise.all(req.body.events.map(handleEvent))
         .then((result) => res.json(result))
         .catch((err) => console.error(err));
 });
 
-// 設置 ping 路由，供 pinger-app 呼叫
 app.post('/ping', (req, res) => {
     console.log('來自 pinger-app 的訊息:', req.body);
     res.json({ message: 'pong' });
 });
 
-// 每 10 分鐘向 pinger-app 發送一次 ping 請求
 function sendPing() {
     axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
         .then(response => {
@@ -712,14 +669,9 @@ function sendPing() {
         });
 }
 setInterval(sendPing, 10 * 60 * 1000);
-
-// 每 60 分鐘執行一次抓取狀態檢查
 setInterval(checkFetchStatus, 60 * 60 * 1000);
-
-// 每 24 小時自動更新所有使用者資料
 setInterval(updateAllUserProfiles, 24 * 60 * 60 * 1000);
 
-// 啟動流程
 loginAndFetchPM10Data();
 monitorScrapeInterval();
 monitorPM10Threshold();
