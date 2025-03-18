@@ -383,8 +383,6 @@ async function handleEvent(event) {
         console.log('執行即時查詢');
         const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const latestData = snapshot.val();
-        const thresholdSnapshot = await db.ref('settings/PM10_THRESHOLD').once('value');
-        const pm10Threshold = thresholdSnapshot.val() || 126;
         const nowTime = moment().tz('Asia/Taipei');
         if (latestData) {
             const latestPM10 = Object.values(latestData)[0];
@@ -393,39 +391,95 @@ async function handleEvent(event) {
             console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
             if (timeDiff <= 1) {
                 replyMessage = `📡 PM10即時查詢結果
-📅 時間: ${latestPM10.time}
-🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+    📅 時間: ${latestPM10.time}
+    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+                
+                // 加入 24 小時內超過閾值的檢查
+                const cutoff = moment().subtract(24, 'hours').valueOf();
+                const snapshot24 = await db.ref('pm10_records')
+                                            .orderByKey()
+                                            .startAt(cutoff.toString())
+                                            .once('value');
+                const records = snapshot24.val();
+                let alertRecords = [];
+                if (records) {
+                    for (const [timestamp, data] of Object.entries(records)) {
+                        let alertText = `📅 時間: ${data.time}`;
+                        let hasAlert = false;
+                        if (data.station_184 && data.station_184 > pm10Threshold) {
+                            alertText += `\n🌍 測站184: ${data.station_184} µg/m³`;
+                            hasAlert = true;
+                        }
+                        if (data.station_185 && data.station_185 > pm10Threshold) {
+                            alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
+                            hasAlert = true;
+                        }
+                        if (hasAlert) {
+                            alertRecords.push(alertText);
+                        }
+                    }
+                }
+                if (alertRecords.length > 0) {
+                    replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
+                } else {
+                    replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+                }
+                
                 replyMessage = await appendQuotaInfo(replyMessage);
                 return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
             }
         }
         console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
-        let lastFetchTime = await getLastFetchTime();
-        if (!lastFetchTime) {
-            lastFetchTime = moment().tz('Asia/Taipei').subtract(scrapeInterval / 60000, 'minutes').format('YYYY/MM/DD HH:mm');
-        } else {
-            lastFetchTime = moment(lastFetchTime).tz('Asia/Taipei').format('YYYY/MM/DD HH:mm');
-        }
-        console.log(`🕒 重新抓取時間範圍: ${lastFetchTime} ~ ${nowTime.format('YYYY/MM/DD HH:mm')}`);
         await loginAndFetchPM10Data();
         const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
         const newLatestData = newSnapshot.val();
         if (newLatestData) {
             const latestPM10 = Object.values(newLatestData)[0];
             replyMessage = `📡 PM10即時查詢結果
-📅 時間: ${latestPM10.time}
-🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+    📅 時間: ${latestPM10.time}
+    🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+    🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+    ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+            
+            // 同樣加入 24 小時內超過閾值的檢查
+            const cutoff = moment().subtract(24, 'hours').valueOf();
+            const snapshot24 = await db.ref('pm10_records')
+                                        .orderByKey()
+                                        .startAt(cutoff.toString())
+                                        .once('value');
+            const records = snapshot24.val();
+            let alertRecords = [];
+            if (records) {
+                for (const [timestamp, data] of Object.entries(records)) {
+                    let alertText = `📅 時間: ${data.time}`;
+                    let hasAlert = false;
+                    if (data.station_184 && data.station_184 > pm10Threshold) {
+                        alertText += `\n🌍 測站184: ${data.station_184} µg/m³`;
+                        hasAlert = true;
+                    }
+                    if (data.station_185 && data.station_185 > pm10Threshold) {
+                        alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
+                        hasAlert = true;
+                    }
+                    if (hasAlert) {
+                        alertRecords.push(alertText);
+                    }
+                }
+            }
+            if (alertRecords.length > 0) {
+                replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
+            } else {
+                replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+            }
         } else {
             replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
         }
         replyMessage = await appendQuotaInfo(replyMessage);
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
-
+   
     if (receivedMessage === '24小時記錄') {
         console.log('📥 取得 24 小時記錄');
         const cutoff = moment().subtract(24, 'hours').valueOf();
