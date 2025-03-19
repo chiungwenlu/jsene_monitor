@@ -548,9 +548,10 @@ async function handleEvent(event) {
         if (!quota || !consumption) {
             replyMessage = '⚠️ 無法查詢 LINE 訊息配額，請稍後再試。';
         } else {
-            replyMessage = `📊 **LINE 訊息發送狀態**\n\n` +
-                           `📩 免費廣播訊息數量: **${quota.value === -1 ? '無限' : quota.value}**\n` +
-                           `📤 已使用訊息數量: **${consumption.totalUsage}**`;
+            replyMessage = `📊 LINE 訊息發送狀態\n\n` +
+                           `📩 免費廣播訊息數量: ${quota.value === -1 ? '無限' : quota.value}\n` +
+                           `📤 已使用訊息數量: ${consumption.totalUsage}\n\n` +
+                           `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
         }
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
@@ -572,22 +573,6 @@ async function handleEvent(event) {
                         type: 'action',
                         action: {
                             type: 'message',
-                            label: '查詢使用者',
-                            text: '使用者'
-                        }
-                    },
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
-                            label: '查詢訊息配額',
-                            text: '查詢訊息配額'
-                        }
-                    },
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
                             label: '設定PM10閾值',
                             text: '設定PM10閾值'
                         }
@@ -600,6 +585,22 @@ async function handleEvent(event) {
                             text: '超閾值警報間隔(分鐘)'
                         }
                     },
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '查詢訊息配額',
+                            text: '查詢訊息配額'
+                        }
+                    },                    
+                    {
+                        type: 'action',
+                        action: {
+                            type: 'message',
+                            label: '查詢使用者',
+                            text: '使用者'
+                        }
+                    },                    
                     {
                         type: 'action',
                         action: {
