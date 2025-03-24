@@ -323,6 +323,36 @@ async function appendQuotaInfo(messageText) {
     return messageText;
 }
 
+// ----------------------- 新增：檢查並更新使用者互動資料功能 -----------------------
+
+async function checkAndUpdateUserProfile(userId, interactionItem) {
+    const now = moment().tz('Asia/Taipei').format('YYYY-MM-DD HH:mm:ss');
+    const snapshot = await db.ref(`users/${userId}`).once('value');
+    if (!snapshot.exists()) {
+        try {
+            const profile = await client.getProfile(userId);
+            const displayName = profile.displayName || '未知用戶';
+            await db.ref(`users/${userId}`).set({
+                displayName: displayName,
+                pictureUrl: profile.pictureUrl || '',
+                statusMessage: profile.statusMessage || '',
+                createdAt: now,
+                lastInteractionTime: now,
+                lastInteractionItem: interactionItem
+            });
+            console.log(`✅ 新使用者資料已新增：${displayName} (userId: ${userId})`);
+        } catch (error) {
+            console.error(`❌ 取得使用者 ${userId} 資訊失敗：`, error);
+        }
+    } else {
+        await db.ref(`users/${userId}`).update({
+            lastInteractionTime: now,
+            lastInteractionItem: interactionItem
+        });
+        console.log(`使用者 ${userId} 的互動資料已更新`);
+    }
+}
+
 // ----------------------- 使用者資料相關功能 -----------------------
 
 async function handleFollowEvent(event) {
@@ -381,78 +411,126 @@ const lineConfig = {
 const client = new line.Client(lineConfig);
 
 async function handleEvent(event) {
+    // 處理 follow 事件
     if (event.type === 'follow') {
         return handleFollowEvent(event);
     }
-    if (event.type !== 'message' || event.message.type !== 'text') {
-        return Promise.resolve(null);
-    }
-    const receivedMessage = event.message.text;
-    let replyMessage = '';
-    const userId = event.source.userId;
+    // 若為文字訊息事件，先檢查並更新使用者互動資料
+    if (event.type === 'message' && event.message.type === 'text') {
+        const userId = event.source.userId;
+        const receivedMessage = event.message.text;
+        await checkAndUpdateUserProfile(userId, receivedMessage);
+        
+        let replyMessage = '';
+        const recognizedCommands = ["即時查詢", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
 
-    // 檢查使用者等待設定狀態（存於 Firebase users/{userId}/waitingForSetting）
-    let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
-    let waitingForSetting = waitingSnapshot.val() || null;
-    const recognizedCommands = ["即時查詢", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
+        // 檢查使用者等待設定狀態（存於 Firebase users/{userId}/waitingForSetting）
+        let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
+        let waitingForSetting = waitingSnapshot.val() || null;
 
-    if (waitingForSetting !== null) {
-        if (receivedMessage === "取消") {
-            await db.ref(`users/${userId}/waitingForSetting`).remove();
-            return client.replyMessage(event.replyToken, {
-                type: 'text',
-                text: '已取消設定。'
-            });
-        } else if (recognizedCommands.includes(receivedMessage)) {
-            // 若收到其他預設指令，先清除等待狀態，再進入新指令流程
-            await db.ref(`users/${userId}/waitingForSetting`).remove();
-        } else {
-            if (waitingForSetting === "PM10_THRESHOLD") {
-                const newValue = Number(receivedMessage);
-                if (isNaN(newValue)) {
-                    await db.ref(`users/${userId}/waitingForSetting`).remove();
-                    return client.replyMessage(event.replyToken, {
-                        type: 'text',
-                        text: '輸入錯誤，PM10 閾值必須為數字，維持原設定並離開。'
-                    });
-                }
-                await db.ref('settings/PM10_THRESHOLD').set(newValue);
+        if (waitingForSetting !== null) {
+            if (receivedMessage === "取消") {
                 await db.ref(`users/${userId}/waitingForSetting`).remove();
                 return client.replyMessage(event.replyToken, {
                     type: 'text',
-                    text: `已將 PM10 閾值設定為 ${newValue}`
+                    text: '已取消設定。'
                 });
-            } else if (waitingForSetting === "ALERT_INTERVAL") {
-                const newValue = Number(receivedMessage);
-                if (isNaN(newValue) || newValue < 30 || newValue > 240) {
+            } else if (recognizedCommands.includes(receivedMessage)) {
+                // 若收到其他預設指令，先清除等待狀態，再進入新指令流程
+                await db.ref(`users/${userId}/waitingForSetting`).remove();
+            } else {
+                if (waitingForSetting === "PM10_THRESHOLD") {
+                    const newValue = Number(receivedMessage);
+                    if (isNaN(newValue)) {
+                        await db.ref(`users/${userId}/waitingForSetting`).remove();
+                        return client.replyMessage(event.replyToken, {
+                            type: 'text',
+                            text: '輸入錯誤，PM10 閾值必須為數字，維持原設定並離開。'
+                        });
+                    }
+                    await db.ref('settings/PM10_THRESHOLD').set(newValue);
                     await db.ref(`users/${userId}/waitingForSetting`).remove();
                     return client.replyMessage(event.replyToken, {
                         type: 'text',
-                        text: '輸入錯誤，超閾值警報間隔必須為 30~240 之間的數字，維持原設定並離開。'
+                        text: `已將 PM10 閾值設定為 ${newValue}`
+                    });
+                } else if (waitingForSetting === "ALERT_INTERVAL") {
+                    const newValue = Number(receivedMessage);
+                    if (isNaN(newValue) || newValue < 30 || newValue > 240) {
+                        await db.ref(`users/${userId}/waitingForSetting`).remove();
+                        return client.replyMessage(event.replyToken, {
+                            type: 'text',
+                            text: '輸入錯誤，超閾值警報間隔必須為 30~240 之間的數字，維持原設定並離開。'
+                        });
+                    }
+                    await db.ref('settings/ALERT_INTERVAL').set(newValue);
+                    await db.ref(`users/${userId}/waitingForSetting`).remove();
+                    return client.replyMessage(event.replyToken, {
+                        type: 'text',
+                        text: `已將超閾值警報間隔設定為 ${newValue} 分鐘`
                     });
                 }
-                await db.ref('settings/ALERT_INTERVAL').set(newValue);
-                await db.ref(`users/${userId}/waitingForSetting`).remove();
-                return client.replyMessage(event.replyToken, {
-                    type: 'text',
-                    text: `已將超閾值警報間隔設定為 ${newValue} 分鐘`
-                });
             }
         }
-    }
 
-    // 處理一般指令
-    if (receivedMessage === '即時查詢') {
-        console.log('執行即時查詢');
-        const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
-        const latestData = snapshot.val();
-        const nowTime = moment().tz('Asia/Taipei');
-        if (latestData) {
-            const latestPM10 = Object.values(latestData)[0];
-            const latestTime = moment.tz(latestPM10.time, "YYYY/MM/DD HH:mm", "Asia/Taipei");
-            const timeDiff = Math.abs(nowTime.diff(latestTime, 'minutes'));
-            console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
-            if (timeDiff <= 1) {
+        // 處理一般指令
+        if (receivedMessage === '即時查詢') {
+            console.log('執行即時查詢');
+            const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
+            const latestData = snapshot.val();
+            const nowTime = moment().tz('Asia/Taipei');
+            if (latestData) {
+                const latestPM10 = Object.values(latestData)[0];
+                const latestTime = moment.tz(latestPM10.time, "YYYY/MM/DD HH:mm", "Asia/Taipei");
+                const timeDiff = Math.abs(nowTime.diff(latestTime, 'minutes'));
+                console.log(`🔍 Firebase 最新數據時間: ${latestPM10.time}, 與現在時間相差: ${timeDiff} 分鐘`);
+                if (timeDiff <= 1) {
+                    replyMessage = `📡 PM10即時查詢結果
+📅 時間: ${latestPM10.time}
+🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
+🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
+                    
+                    const cutoff = moment().subtract(24, 'hours').valueOf();
+                    const snapshot24 = await db.ref('pm10_records')
+                                                .orderByKey()
+                                                .startAt(cutoff.toString())
+                                                .once('value');
+                    const records = snapshot24.val();
+                    let alertRecords = [];
+                    if (records) {
+                        for (const [timestamp, data] of Object.entries(records)) {
+                            let alertText = `📅 時間: ${data.time}`;
+                            let hasAlert = false;
+                            if (data.station_184 && data.station_184 > pm10Threshold) {
+                                alertText += `\n🌍 測站184: ${data.station_184} µg/m³`;
+                                hasAlert = true;
+                            }
+                            if (data.station_185 && data.station_185 > pm10Threshold) {
+                                alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
+                                hasAlert = true;
+                            }
+                            if (hasAlert) {
+                                alertRecords.push(alertText);
+                            }
+                        }
+                    }
+                    if (alertRecords.length > 0) {
+                        replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
+                    } else {
+                        replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+                    }
+                    
+                    replyMessage = await appendQuotaInfo(replyMessage);
+                    return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+                }
+            }
+            console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
+            await loginAndFetchPM10Data();
+            const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
+            const newLatestData = newSnapshot.val();
+            if (newLatestData) {
+                const latestPM10 = Object.values(newLatestData)[0];
                 replyMessage = `📡 PM10即時查詢結果
 📅 時間: ${latestPM10.time}
 🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
@@ -488,191 +566,147 @@ async function handleEvent(event) {
                 } else {
                     replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
                 }
-                
-                replyMessage = await appendQuotaInfo(replyMessage);
-                return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-            }
-        }
-        console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
-        await loginAndFetchPM10Data();
-        const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
-        const newLatestData = newSnapshot.val();
-        if (newLatestData) {
-            const latestPM10 = Object.values(newLatestData)[0];
-            replyMessage = `📡 PM10即時查詢結果
-📅 時間: ${latestPM10.time}
-🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
-🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
-            
-            const cutoff = moment().subtract(24, 'hours').valueOf();
-            const snapshot24 = await db.ref('pm10_records')
-                                        .orderByKey()
-                                        .startAt(cutoff.toString())
-                                        .once('value');
-            const records = snapshot24.val();
-            let alertRecords = [];
-            if (records) {
-                for (const [timestamp, data] of Object.entries(records)) {
-                    let alertText = `📅 時間: ${data.time}`;
-                    let hasAlert = false;
-                    if (data.station_184 && data.station_184 > pm10Threshold) {
-                        alertText += `\n🌍 測站184: ${data.station_184} µg/m³`;
-                        hasAlert = true;
-                    }
-                    if (data.station_185 && data.station_185 > pm10Threshold) {
-                        alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
-                        hasAlert = true;
-                    }
-                    if (hasAlert) {
-                        alertRecords.push(alertText);
-                    }
-                }
-            }
-            if (alertRecords.length > 0) {
-                replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
             } else {
-                replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+                replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
             }
-        } else {
-            replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
-        }
-        replyMessage = await appendQuotaInfo(replyMessage);
-        return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
-    }
-    else if (receivedMessage === '24小時記錄') {
-        console.log('📥 取得 24 小時記錄');
-        const cutoff = moment().subtract(24, 'hours').valueOf();
-        const snapshot = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
-        const records = snapshot.val();
-        if (!records) {
-            replyMessage = '⚠️ 目前沒有可用的 24 小時記錄。';
             replyMessage = await appendQuotaInfo(replyMessage);
             return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
         }
-        let recordText = '📡 PM10 24 小時記錄\n\n';
-        let alertRecords = [];
-        let fileContent = '時間, 測站184(PM10), 測站185(PM10)\n';
-        for (const [timestamp, data] of Object.entries(records)) {
-            const time = data.time;
-            const station184 = data.station_184 || 'N/A';
-            const station185 = data.station_185 || 'N/A';
-            fileContent += `${time}, ${station184}, ${station185}\n`;
-            let alertText = `📅 時間: ${time}`;
-            let hasAlert = false;
-            if (station184 !== 'N/A' && station184 > pm10Threshold) {
-                alertText += `\n🌍 測站184: ${station184} µg/m³`;
-                hasAlert = true;
+        else if (receivedMessage === '24小時記錄') {
+            console.log('📥 取得 24 小時記錄');
+            const cutoff = moment().subtract(24, 'hours').valueOf();
+            const snapshot = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
+            const records = snapshot.val();
+            if (!records) {
+                replyMessage = '⚠️ 目前沒有可用的 24 小時記錄。';
+                replyMessage = await appendQuotaInfo(replyMessage);
+                return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
             }
-            if (station185 !== 'N/A' && station185 > pm10Threshold) {
-                alertText += `\n🌍 測站185: ${station185} µg/m³`;
-                hasAlert = true;
+            let recordText = '📡 PM10 24 小時記錄\n\n';
+            let alertRecords = [];
+            let fileContent = '時間, 測站184(PM10), 測站185(PM10)\n';
+            for (const [timestamp, data] of Object.entries(records)) {
+                const time = data.time;
+                const station184 = data.station_184 || 'N/A';
+                const station185 = data.station_185 || 'N/A';
+                fileContent += `${time}, ${station184}, ${station185}\n`;
+                let alertText = `📅 時間: ${time}`;
+                let hasAlert = false;
+                if (station184 !== 'N/A' && station184 > pm10Threshold) {
+                    alertText += `\n🌍 測站184: ${station184} µg/m³`;
+                    hasAlert = true;
+                }
+                if (station185 !== 'N/A' && station185 > pm10Threshold) {
+                    alertText += `\n🌍 測站185: ${station185} µg/m³`;
+                    hasAlert = true;
+                }
+                if (hasAlert) {
+                    alertRecords.push(alertText);
+                }
             }
-            if (hasAlert) {
-                alertRecords.push(alertText);
+            const filePath = path.join(__dirname, 'records', '24hr_record.txt');
+            fs.writeFileSync(filePath, fileContent, 'utf8');
+            if (alertRecords.length > 0) {
+                recordText += '⚠️ 以下為超過 PM10 閾值的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
+            } else {
+                recordText += '✅ 過去 24 小時內無數據超過 PM10 閾值。\n\n';
+            }
+            recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
+            recordText = await appendQuotaInfo(recordText);
+            return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
+        }
+        else if (receivedMessage === '查詢訊息配額') {
+            console.log('📡 查詢 LINE 訊息發送配額...');
+            const quota = await getMessageQuota();
+            const consumption = await getMessageQuotaConsumption();
+            if (!quota || !consumption) {
+                replyMessage = '⚠️ 無法查詢 LINE 訊息配額，請稍後再試。';
+            } else {
+                replyMessage = `📊 LINE 訊息發送狀態\n\n` +
+                               `📩 免費廣播訊息數量: ${quota.value === -1 ? '無限' : quota.value}\n` +
+                               `📤 已使用訊息數量: ${consumption.totalUsage}\n\n` +
+                               `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
+            }
+            return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+        }
+        else if (receivedMessage === '設定PM10閾值') {
+            await db.ref(`users/${userId}/waitingForSetting`).set("PM10_THRESHOLD");
+            return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的 PM10 閾值 (數字)：' });
+        }
+        else if (receivedMessage === '超閾值警報間隔(分鐘)') {
+            await db.ref(`users/${userId}/waitingForSetting`).set("ALERT_INTERVAL");
+            return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘)：' });
+        }
+        else if (receivedMessage === '顯示常用指令') {
+            return client.replyMessage(event.replyToken, {
+                type: 'text',
+                text: '請選擇要執行的功能：',
+                quickReply: {
+                    items: [
+                        {
+                            type: 'action',
+                            action: {
+                                type: 'message',
+                                label: '設定PM10閾值',
+                                text: '設定PM10閾值'
+                            }
+                        },
+                        {
+                            type: 'action',
+                            action: {
+                                type: 'message',
+                                label: '超閾值警報間隔(分鐘)',
+                                text: '超閾值警報間隔(分鐘)'
+                            }
+                        },
+                        {
+                            type: 'action',
+                            action: {
+                                type: 'message',
+                                label: '查詢訊息配額',
+                                text: '查詢訊息配額'
+                            }
+                        },                    
+                        {
+                            type: 'action',
+                            action: {
+                                type: 'message',
+                                label: '查詢使用者',
+                                text: '使用者'
+                            }
+                        },                    
+                        {
+                            type: 'action',
+                            action: {
+                                type: 'uri',
+                                label: '前往Juno雲端數據中心',
+                                uri: 'https://www.jsene.com/juno/Login.aspx'
+                            }
+                        }
+                    ]
+                }
+            });
+        }
+        else if (receivedMessage === '使用者') {
+            try {
+                const snapshot = await db.ref('users').once('value');
+                const usersData = snapshot.val() || {};
+                const userCount = Object.keys(usersData).length;
+                let userListText = `總使用者數量：${userCount}\n\n`;
+                for (const uid in usersData) {
+                    const user = usersData[uid];
+                    const lastTime = user.lastInteractionTime || '無';
+                    userListText += `${user.displayName} (最後互動時間: ${lastTime})\n`;
+                }
+                return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
+            } catch (err) {
+                return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
             }
         }
-        const filePath = path.join(__dirname, 'records', '24hr_record.txt');
-        fs.writeFileSync(filePath, fileContent, 'utf8');
-        if (alertRecords.length > 0) {
-            recordText += '⚠️ 以下為超過 PM10 閾值的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
-        } else {
-            recordText += '✅ 過去 24 小時內無數據超過 PM10 閾值。\n\n';
-        }
-        recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
-        recordText = await appendQuotaInfo(recordText);
-        return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
-    }
-    else if (receivedMessage === '查詢訊息配額') {
-        console.log('📡 查詢 LINE 訊息發送配額...');
-        const quota = await getMessageQuota();
-        const consumption = await getMessageQuotaConsumption();
-        if (!quota || !consumption) {
-            replyMessage = '⚠️ 無法查詢 LINE 訊息配額，請稍後再試。';
-        } else {
-            replyMessage = `📊 LINE 訊息發送狀態\n\n` +
-                           `📩 免費廣播訊息數量: ${quota.value === -1 ? '無限' : quota.value}\n` +
-                           `📤 已使用訊息數量: ${consumption.totalUsage}\n\n` +
-                           `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
-        }
+
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
-    else if (receivedMessage === '設定PM10閾值') {
-        await db.ref(`users/${userId}/waitingForSetting`).set("PM10_THRESHOLD");
-        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的 PM10 閾值 (數字)：' });
-    }
-    else if (receivedMessage === '超閾值警報間隔(分鐘)') {
-        await db.ref(`users/${userId}/waitingForSetting`).set("ALERT_INTERVAL");
-        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘)：' });
-    }
-    else if (receivedMessage === '顯示常用指令') {
-        return client.replyMessage(event.replyToken, {
-            type: 'text',
-            text: '請選擇要執行的功能：',
-            quickReply: {
-                items: [
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
-                            label: '設定PM10閾值',
-                            text: '設定PM10閾值'
-                        }
-                    },
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
-                            label: '超閾值警報間隔(分鐘)',
-                            text: '超閾值警報間隔(分鐘)'
-                        }
-                    },
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
-                            label: '查詢訊息配額',
-                            text: '查詢訊息配額'
-                        }
-                    },                    
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'message',
-                            label: '查詢使用者',
-                            text: '使用者'
-                        }
-                    },                    
-                    {
-                        type: 'action',
-                        action: {
-                            type: 'uri',
-                            label: '前往Juno雲端數據中心',
-                            uri: 'https://www.jsene.com/juno/Login.aspx'
-                        }
-                    }
-                ]
-            }
-        });
-    }
-    else if (receivedMessage === '使用者') {
-        try {
-            const snapshot = await db.ref('users').once('value');
-            const usersData = snapshot.val() || {};
-            const userCount = Object.keys(usersData).length;
-            let userListText = `總使用者數量：${userCount}\n\n`;
-            for (const uid in usersData) {
-                const user = usersData[uid];
-                const userName = user.name || '未知使用者';
-                userListText += `${userName}\n`;
-            }
-            return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
-        } catch (err) {
-            return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
-        }
-    }
-
-    return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
+    return Promise.resolve(null);
 }
 
 // ----------------------- Express 路由與定時排程 -----------------------
