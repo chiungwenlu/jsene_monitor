@@ -198,25 +198,67 @@ async function loginAndFetchPM10Data() {
     const username = settings.ACCOUNT_NAME || 'ExcelTek';
     const password = settings.ACCOUNT_PASSWORD || 'ExcelTek';
     console.log(`🔹 設定 - 抓取間隔: ${scrapeInterval / 60000} 分鐘, 警告間隔: ${alertInterval} 分鐘, PM10 閾值: ${pm10Threshold}`);
-    await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
-    await page.type('#T_Account', username);
-    await page.type('#T_Password', password);
-    await Promise.all([
-        page.click('#Btn_Login'),
-        page.waitForNavigation({ waitUntil: 'networkidle2' })
-    ]);
-    console.log('✅ 成功登入，開始抓取數據...');
-    const { data: station184Data, endTimeTimestamp } = await fetchStationData(page, '3100184');
-    const { data: station185Data } = await fetchStationData(page, '3100185');
-    await browser.close();
-    const mergedData = Object.keys(station184Data).map((time) => ({
-        time,
-        timestamp: moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf(),
-        station_184: station184Data[time] || null,
-        station_185: station185Data[time] || null
-    }));
-    await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
-    await saveToFirebase(mergedData, endTimeTimestamp);
+
+    try {
+        // 登入
+        await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
+        await page.type('#T_Account', username);
+        await page.type('#T_Password', password);
+        await Promise.all([
+            page.click('#Btn_Login'),
+            page.waitForNavigation({ waitUntil: 'networkidle2' })
+        ]);
+        console.log('✅ 成功登入，開始抓取數據...');
+
+        let station184Data = {};
+        let station185Data = {};
+        let endTimeTimestamp = null;
+
+        // 嘗試抓取測站 184
+        try {
+            const result184 = await fetchStationData(page, '3100184');
+            station184Data = result184.data;
+            endTimeTimestamp = result184.endTimeTimestamp;
+            console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
+        } catch (err) {
+            console.error('❌ 抓取測站 184 發生錯誤：', err.message);
+        }
+
+        // 嘗試抓取測站 185
+        try {
+            const result185 = await fetchStationData(page, '3100185');
+            station185Data = result185.data;
+            if (!endTimeTimestamp) {
+                endTimeTimestamp = result185.endTimeTimestamp;
+            }
+            console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
+        } catch (err) {
+            console.error('❌ 抓取測站 185 發生錯誤：', err.message);
+        }
+
+        // 合併資料
+        const allTimeKeys = new Set([
+            ...Object.keys(station184Data),
+            ...Object.keys(station185Data)
+        ]);
+        const mergedData = Array.from(allTimeKeys).map((time) => ({
+            time,
+            timestamp: moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf(),
+            station_184: station184Data[time] || null,
+            station_185: station185Data[time] || null
+        }));
+
+        if (mergedData.length > 0) {
+            await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
+            await saveToFirebase(mergedData, endTimeTimestamp);
+        } else {
+            console.warn('⚠️ 無任何測站資料成功抓取，跳過儲存與清除動作。');
+        }
+    } catch (err) {
+        console.error('❌ 整體抓取流程錯誤：', err.message);
+    } finally {
+        await browser.close();
+    }
 }
 
 async function checkFetchStatus() {
