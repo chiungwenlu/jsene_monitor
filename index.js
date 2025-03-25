@@ -124,6 +124,12 @@ async function getDynamicDataURL(stationId) {
     };
 }
 
+// 假設已經有以下全域變數
+// let lastSuccessfulTime184 = null;
+// let lastSuccessfulTime185 = null;
+// let firstAttemptTime184 = null;
+// let firstAttemptTime185 = null;
+
 async function fetchStationData(page, stationId) {
     console.log(`📊 嘗試抓取測站 ${stationId} 的數據...`);
 
@@ -180,6 +186,7 @@ async function fetchStationData(page, stationId) {
         endTimeTimestamp
     };
 }
+
 
 async function pruneOldData() {
     const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -268,6 +275,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
         } catch (err) {
             console.error('❌ 抓取測站 184 發生錯誤：', err.message);
+            await checkStationDataInFirebase('184'); // 檢查 Firebase
         }
 
         // 嘗試抓取測站 185
@@ -280,6 +288,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
         } catch (err) {
             console.error('❌ 抓取測站 185 發生錯誤：', err.message);
+            await checkStationDataInFirebase('185'); // 檢查 Firebase
         }
 
         // 合併資料
@@ -349,6 +358,75 @@ async function checkFetchStatus() {
         console.log("數據抓取狀態正常。");
     }
 }
+
+// 可放在你的程式任意位置
+async function checkStationDataInFirebase(stationId) {
+    try {
+      // 1. 從 Firebase 撈取「最近一筆時間戳 (timestamp) 最大的紀錄」，只要 station_184 不為 null
+      //    這裡示範用 limitToLast(200) 取最近 200 筆，再自己從中挑出最後一筆 station_184 != null 的資料
+      //    可依實際需求調整取多少筆，或使用其他索引方式。
+      const snapshot = await db.ref('pm10_records')
+        .orderByKey()
+        .limitToLast(200)
+        .once('value');
+      const records = snapshot.val() || {};
+  
+      let latestTimestampWithData = null;
+      let latestTimeString = null;
+  
+      // 2. 遍歷取到的紀錄，找到「該測站不為 null」的最後一筆
+      //    stationId 為 '184' 時，欄位名稱是 station_184
+      //    stationId 為 '185' 時，欄位名稱是 station_185
+      const stationKey = (stationId === '184') ? 'station_184' : 'station_185';
+  
+      for (const [tsKey, data] of Object.entries(records)) {
+        // data 形如 { time: '2025/03/25 09:28', station_184: 12.3, station_185: null }
+        if (data[stationKey] !== null && data[stationKey] !== undefined) {
+          // 轉成數字比較
+          const ts = Number(tsKey);
+          if (!latestTimestampWithData || ts > latestTimestampWithData) {
+            latestTimestampWithData = ts;
+            latestTimeString = data.time;
+          }
+        }
+      }
+  
+      if (!latestTimestampWithData) {
+        // 表示最近 200 筆裡都沒有該測站有效數據，直接視為超過 12 小時
+        console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
+        await broadcastNoDataWarning(stationId);
+        return;
+      }
+  
+      // 3. 判斷 latestTimestampWithData 與現在時間差
+      const now = Date.now();
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+      if (now - latestTimestampWithData > TWELVE_HOURS) {
+        // 超過 12 小時
+        console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
+        await broadcastNoDataWarning(stationId, latestTimeString);
+      } else {
+        console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
+      }
+    } catch (error) {
+      console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
+    }
+  }
+  
+  // 範例的廣播函式
+  async function broadcastNoDataWarning(stationId, timeString) {
+    // timeString 可能是 "2025/03/25 09:28" 之類的字串
+    // 若找不到任何有效紀錄，可不顯示 timeString
+    let alertMessage = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
+    if (timeString) {
+      alertMessage += `\n最後一次有數據時間：${timeString}`;
+    }
+    // 你也可以加上 appendQuotaInfo 或其他資訊
+    // alertMessage = await appendQuotaInfo(alertMessage);
+  
+    // 廣播出去
+    await client.broadcast({ type: 'text', text: alertMessage });
+  } 
 
 async function getMessageQuota() {
     try {
@@ -766,7 +844,7 @@ async function handleEvent(event) {
                 for (const uid in usersData) {
                     const user = usersData[uid];
                     const lastTime = user.lastInteractionTime || '無';
-                    userListText += `${user.displayName} (最近互動時間: ${lastTime})\n`;
+                    userListText += `${user.displayName} (最後互動時間: ${lastTime})\n`;
                 }
                 return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
             } catch (err) {
