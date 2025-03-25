@@ -126,13 +126,25 @@ async function getDynamicDataURL(stationId) {
 
 async function fetchStationData(page, stationId) {
     console.log(`📊 嘗試抓取測站 ${stationId} 的數據...`);
+
+    // 先取得動態 URL 與 endTimeTimestamp
     const { url, endTimeTimestamp } = await getDynamicDataURL(stationId);
+
+    // 前往目標網頁
     await page.goto(url, { waitUntil: 'networkidle2' });
+
+    // 等待表格出現（若找不到或逾時，會拋出錯誤）
     await page.waitForSelector('#CP_CPn_JQGrid2 tbody tr', { timeout: 15000 });
     console.log(`✅ 測站 ${stationId} 的資料表已加載，開始抓取數據...`);
+
+    // 取得整個網頁的 HTML，並用 cheerio 解析
     const html = await page.content();
     const $ = cheerio.load(html);
+
+    // 用來存放「時間 => PM10 數值」的物件
     let pm10Data = {};
+
+    // 遍歷表格的每一列，擷取時間與 PM10 值
     $('#CP_CPn_JQGrid2 tbody tr').each((_, row) => {
         const time = $(row).find('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').text().trim();
         const pm10 = $(row).find('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').text().trim();
@@ -140,16 +152,33 @@ async function fetchStationData(page, stationId) {
             pm10Data[time] = parseFloat(pm10);
         }
     });
-    // 更新全域抓取成功時間與第一次嘗試時間
+
+    // 如果實際取得的筆數為 0，表示這次沒有任何有效數據
+    if (Object.keys(pm10Data).length === 0) {
+        // 這裡示範「拋出錯誤」，讓外層 try/catch 處理
+        // 你也可以選擇直接 return null，而不更新 lastSuccessfulTime
+        throw new Error(`測站 ${stationId} 抓取成功但 0 筆資料`);
+    }
+
+    // 若確實有資料，才更新最後成功抓取時間
     const now = Date.now();
     if (stationId === '3100184') {
         lastSuccessfulTime184 = now;
-        if (!firstAttemptTime184) firstAttemptTime184 = now;
+        if (!firstAttemptTime184) {
+            firstAttemptTime184 = now;
+        }
     } else if (stationId === '3100185') {
         lastSuccessfulTime185 = now;
-        if (!firstAttemptTime185) firstAttemptTime185 = now;
+        if (!firstAttemptTime185) {
+            firstAttemptTime185 = now;
+        }
     }
-    return { data: pm10Data, endTimeTimestamp };
+
+    // 回傳抓到的資料及結束時間戳
+    return {
+        data: pm10Data,
+        endTimeTimestamp
+    };
 }
 
 async function pruneOldData() {
@@ -737,7 +766,7 @@ async function handleEvent(event) {
                 for (const uid in usersData) {
                     const user = usersData[uid];
                     const lastTime = user.lastInteractionTime || '無';
-                    userListText += `${user.displayName} (最後互動時間: ${lastTime})\n`;
+                    userListText += `${user.displayName} (最近互動時間: ${lastTime})\n`;
                 }
                 return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
             } catch (err) {
