@@ -14,6 +14,14 @@ let pm10Threshold = 126; // 預設為 126
 let fetchInterval = null; // 記錄 setInterval 的 ID
 let alertInterval = 60; // 預設為 60 分鐘
 
+// 新增全域變數：記錄各測站抓取成功與第一次嘗試時間，以及上次通知時間
+let lastSuccessfulTime184 = null;
+let lastSuccessfulTime185 = null;
+let firstAttemptTime184 = null;
+let firstAttemptTime185 = null;
+let lastAlertTime184 = null;
+let lastAlertTime185 = null;
+
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
@@ -132,6 +140,15 @@ async function fetchStationData(page, stationId) {
             pm10Data[time] = parseFloat(pm10);
         }
     });
+    // 更新全域抓取成功時間與第一次嘗試時間
+    const now = Date.now();
+    if (stationId === '3100184') {
+        lastSuccessfulTime184 = now;
+        if (!firstAttemptTime184) firstAttemptTime184 = now;
+    } else if (stationId === '3100185') {
+        lastSuccessfulTime185 = now;
+        if (!firstAttemptTime185) firstAttemptTime185 = now;
+    }
     return { data: pm10Data, endTimeTimestamp };
 }
 
@@ -253,6 +270,30 @@ async function loginAndFetchPM10Data() {
             await saveToFirebase(mergedData, endTimeTimestamp);
         } else {
             console.warn('⚠️ 無任何測站資料成功抓取，跳過儲存與清除動作。');
+        }
+
+        // 新增：檢查各測站是否超過 12 小時未更新
+        const now = Date.now();
+        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+        // 測站 184 檢查：若 lastSuccessfulTime184 為 null (表示一直失敗) 且第一次嘗試超過 12 小時，或成功抓取後超過 12 小時未更新
+        if (((lastSuccessfulTime184 === null && firstAttemptTime184 && now - firstAttemptTime184 > TWELVE_HOURS) ||
+             (lastSuccessfulTime184 !== null && now - lastSuccessfulTime184 > TWELVE_HOURS))
+             && (!lastAlertTime184 || now - lastAlertTime184 > TWELVE_HOURS)) {
+            let alertMessage = "⚠️ 警告：測站 184 已失去數據超過 12 小時，請檢查系統狀態！";
+            alertMessage = await appendQuotaInfo(alertMessage);
+            console.log(alertMessage);
+            await client.broadcast({ type: 'text', text: alertMessage });
+            lastAlertTime184 = now;
+        }
+        // 測站 185 檢查
+        if (((lastSuccessfulTime185 === null && firstAttemptTime185 && now - firstAttemptTime185 > TWELVE_HOURS) ||
+             (lastSuccessfulTime185 !== null && now - lastSuccessfulTime185 > TWELVE_HOURS))
+             && (!lastAlertTime185 || now - lastAlertTime185 > TWELVE_HOURS)) {
+            let alertMessage = "⚠️ 警告：測站 185 已失去數據超過 12 小時，請檢查系統狀態！";
+            alertMessage = await appendQuotaInfo(alertMessage);
+            console.log(alertMessage);
+            await client.broadcast({ type: 'text', text: alertMessage });
+            lastAlertTime185 = now;
         }
     } catch (err) {
         console.error('❌ 整體抓取流程錯誤：', err.message);
