@@ -14,13 +14,11 @@ let pm10Threshold = 126; // 預設為 126
 let fetchInterval = null; // 記錄 setInterval 的 ID
 let alertInterval = 60; // 預設為 60 分鐘
 
-// 新增全域變數：記錄各測站抓取成功與第一次嘗試時間，以及上次通知時間
+// 新增全域變數：記錄各測站抓取成功與第一次嘗試時間
 let lastSuccessfulTime184 = null;
 let lastSuccessfulTime185 = null;
 let firstAttemptTime184 = null;
 let firstAttemptTime185 = null;
-let lastAlertTime184 = null;
-let lastAlertTime185 = null;
 
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -37,13 +35,15 @@ async function getFirebaseSettings() {
     return snapshot.val() || {};
 }
 
-async function getLastAlertTime() {
-    const snapshot = await db.ref('settings/last_alert_time').once('value');
+async function getLastAlertTimeForStation(stationId) {
+    const key = (stationId === '184') ? 'last_alert_time_184' : 'last_alert_time_185';
+    const snapshot = await db.ref('settings/' + key).once('value');
     return snapshot.val() || null;
 }
 
-async function updateLastAlertTime(timestamp) {
-    await db.ref('settings/last_alert_time').set(timestamp);
+async function updateLastAlertTimeForStation(stationId, timestamp) {
+    const key = (stationId === '184') ? 'last_alert_time_184' : 'last_alert_time_185';
+    await db.ref('settings/' + key).set(timestamp);
 }
 
 async function getLastFetchTime() {
@@ -124,33 +124,17 @@ async function getDynamicDataURL(stationId) {
     };
 }
 
-// 假設已經有以下全域變數
-// let lastSuccessfulTime184 = null;
-// let lastSuccessfulTime185 = null;
-// let firstAttemptTime184 = null;
-// let firstAttemptTime185 = null;
-
 async function fetchStationData(page, stationId) {
     console.log(`📊 嘗試抓取測站 ${stationId} 的數據...`);
 
-    // 先取得動態 URL 與 endTimeTimestamp
     const { url, endTimeTimestamp } = await getDynamicDataURL(stationId);
-
-    // 前往目標網頁
     await page.goto(url, { waitUntil: 'networkidle2' });
-
-    // 等待表格出現（若找不到或逾時，會拋出錯誤）
     await page.waitForSelector('#CP_CPn_JQGrid2 tbody tr', { timeout: 15000 });
     console.log(`✅ 測站 ${stationId} 的資料表已加載，開始抓取數據...`);
 
-    // 取得整個網頁的 HTML，並用 cheerio 解析
     const html = await page.content();
     const $ = cheerio.load(html);
-
-    // 用來存放「時間 => PM10 數值」的物件
     let pm10Data = {};
-
-    // 遍歷表格的每一列，擷取時間與 PM10 值
     $('#CP_CPn_JQGrid2 tbody tr').each((_, row) => {
         const time = $(row).find('td[aria-describedby="CP_CPn_JQGrid2_Date_Time"]').text().trim();
         const pm10 = $(row).find('td[aria-describedby="CP_CPn_JQGrid2_Value3"]').text().trim();
@@ -159,14 +143,10 @@ async function fetchStationData(page, stationId) {
         }
     });
 
-    // 如果實際取得的筆數為 0，表示這次沒有任何有效數據
     if (Object.keys(pm10Data).length === 0) {
-        // 這裡示範「拋出錯誤」，讓外層 try/catch 處理
-        // 你也可以選擇直接 return null，而不更新 lastSuccessfulTime
         throw new Error(`測站 ${stationId} 抓取成功但 0 筆資料`);
     }
 
-    // 若確實有資料，才更新最後成功抓取時間
     const now = Date.now();
     if (stationId === '3100184') {
         lastSuccessfulTime184 = now;
@@ -179,14 +159,11 @@ async function fetchStationData(page, stationId) {
             firstAttemptTime185 = now;
         }
     }
-
-    // 回傳抓到的資料及結束時間戳
     return {
         data: pm10Data,
         endTimeTimestamp
     };
 }
-
 
 async function pruneOldData() {
     const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -215,7 +192,7 @@ async function saveToFirebase(mergedData, lastTimestamp) {
 
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
-    const lastAlertTime = await getLastAlertTime();
+    const lastAlertTime = await getLastAlertTimeForStation('global'); // 若有全局警報可設定，但本例僅檢查單站
     if (lastAlertTime && now - lastAlertTime < alertInterval * 60 * 1000) {
         console.log('⚠️ 警告間隔內，不發送新的警告。');
         return;
@@ -238,7 +215,7 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
         let finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
         finalAlertMessage = await appendQuotaInfo(finalAlertMessage);
         console.log(finalAlertMessage);
-        await updateLastAlertTime(now);
+        // 此處不更新單站 lastAlertTime，因為我們分別在各測站通知時更新
         await client.broadcast({ type: 'text', text: finalAlertMessage });
     }
 }
@@ -253,7 +230,6 @@ async function loginAndFetchPM10Data() {
     console.log(`🔹 設定 - 抓取間隔: ${scrapeInterval / 60000} 分鐘, 警告間隔: ${alertInterval} 分鐘, PM10 閾值: ${pm10Threshold}`);
 
     try {
-        // 登入
         await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
         await page.type('#T_Account', username);
         await page.type('#T_Password', password);
@@ -275,7 +251,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
         } catch (err) {
             console.error('❌ 抓取測站 184 發生錯誤：', err.message);
-            await checkStationDataInFirebase('184'); // 檢查 Firebase
+            await checkStationDataInFirebase('184');
         }
 
         // 嘗試抓取測站 185
@@ -288,7 +264,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
         } catch (err) {
             console.error('❌ 抓取測站 185 發生錯誤：', err.message);
-            await checkStationDataInFirebase('185'); // 檢查 Firebase
+            await checkStationDataInFirebase('185');
         }
 
         // 合併資料
@@ -310,28 +286,30 @@ async function loginAndFetchPM10Data() {
             console.warn('⚠️ 無任何測站資料成功抓取，跳過儲存與清除動作。');
         }
 
-        // 新增：檢查各測站是否超過 12 小時未更新
+        // 新增：檢查各測站是否超過 12 小時無更新，並利用 Firebase 記錄上次通知時間
         const now = Date.now();
         const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-        // 測站 184 檢查：若 lastSuccessfulTime184 為 null (表示一直失敗) 且第一次嘗試超過 12 小時，或成功抓取後超過 12 小時未更新
+        // 測站 184 檢查
+        const station184LastAlert = await getLastAlertTimeForStation('184');
         if (((lastSuccessfulTime184 === null && firstAttemptTime184 && now - firstAttemptTime184 > TWELVE_HOURS) ||
              (lastSuccessfulTime184 !== null && now - lastSuccessfulTime184 > TWELVE_HOURS))
-             && (!lastAlertTime184 || now - lastAlertTime184 > TWELVE_HOURS)) {
+             && (!station184LastAlert || now - station184LastAlert > TWELVE_HOURS)) {
             let alertMessage = "⚠️ 警告：測站 184 已失去數據超過 12 小時，請檢查系統狀態！";
             alertMessage = await appendQuotaInfo(alertMessage);
             console.log(alertMessage);
             await client.broadcast({ type: 'text', text: alertMessage });
-            lastAlertTime184 = now;
+            await updateLastAlertTimeForStation('184', now);
         }
         // 測站 185 檢查
+        const station185LastAlert = await getLastAlertTimeForStation('185');
         if (((lastSuccessfulTime185 === null && firstAttemptTime185 && now - firstAttemptTime185 > TWELVE_HOURS) ||
              (lastSuccessfulTime185 !== null && now - lastSuccessfulTime185 > TWELVE_HOURS))
-             && (!lastAlertTime185 || now - lastAlertTime185 > TWELVE_HOURS)) {
+             && (!station185LastAlert || now - station185LastAlert > TWELVE_HOURS)) {
             let alertMessage = "⚠️ 警告：測站 185 已失去數據超過 12 小時，請檢查系統狀態！";
             alertMessage = await appendQuotaInfo(alertMessage);
             console.log(alertMessage);
             await client.broadcast({ type: 'text', text: alertMessage });
-            lastAlertTime185 = now;
+            await updateLastAlertTimeForStation('185', now);
         }
     } catch (err) {
         console.error('❌ 整體抓取流程錯誤：', err.message);
@@ -340,94 +318,55 @@ async function loginAndFetchPM10Data() {
     }
 }
 
-async function checkFetchStatus() {
-    const now = moment().tz('Asia/Taipei').valueOf();
-    const lastFetchTime = await getLastFetchTime();
-    if (!lastFetchTime || now - lastFetchTime > 12 * 60 * 60 * 1000) {
-        const lastFetchAlertTime = await getLastFetchAlertTime();
-        if (!lastFetchAlertTime || now - lastFetchAlertTime > 12 * 60 * 60 * 1000) {
-            let alertMessage = "⚠️ 警告：數據抓取失敗已超過12小時，請檢查系統狀態！";
-            alertMessage = await appendQuotaInfo(alertMessage);
-            console.log(alertMessage);
-            await client.broadcast({ type: 'text', text: alertMessage });
-            await updateLastFetchAlertTime(now);
-        } else {
-            console.log("在最近12小時內已發送過抓取失敗警示。");
-        }
-    } else {
-        console.log("數據抓取狀態正常。");
-    }
-}
-
-// 可放在你的程式任意位置
 async function checkStationDataInFirebase(stationId) {
     try {
-      // 1. 從 Firebase 撈取「最近一筆時間戳 (timestamp) 最大的紀錄」，只要 station_184 不為 null
-      //    這裡示範用 limitToLast(200) 取最近 200 筆，再自己從中挑出最後一筆 station_184 != null 的資料
-      //    可依實際需求調整取多少筆，或使用其他索引方式。
-      const snapshot = await db.ref('pm10_records')
-        .orderByKey()
-        .limitToLast(200)
-        .once('value');
-      const records = snapshot.val() || {};
+        const snapshot = await db.ref('pm10_records')
+            .orderByKey()
+            .limitToLast(200)
+            .once('value');
+        const records = snapshot.val() || {};
   
-      let latestTimestampWithData = null;
-      let latestTimeString = null;
+        let latestTimestampWithData = null;
+        let latestTimeString = null;
+        const stationKey = (stationId === '184') ? 'station_184' : 'station_185';
   
-      // 2. 遍歷取到的紀錄，找到「該測站不為 null」的最後一筆
-      //    stationId 為 '184' 時，欄位名稱是 station_184
-      //    stationId 為 '185' 時，欄位名稱是 station_185
-      const stationKey = (stationId === '184') ? 'station_184' : 'station_185';
-  
-      for (const [tsKey, data] of Object.entries(records)) {
-        // data 形如 { time: '2025/03/25 09:28', station_184: 12.3, station_185: null }
-        if (data[stationKey] !== null && data[stationKey] !== undefined) {
-          // 轉成數字比較
-          const ts = Number(tsKey);
-          if (!latestTimestampWithData || ts > latestTimestampWithData) {
-            latestTimestampWithData = ts;
-            latestTimeString = data.time;
-          }
+        for (const [tsKey, data] of Object.entries(records)) {
+            if (data[stationKey] !== null && data[stationKey] !== undefined) {
+                const ts = Number(tsKey);
+                if (!latestTimestampWithData || ts > latestTimestampWithData) {
+                    latestTimestampWithData = ts;
+                    latestTimeString = data.time;
+                }
+            }
         }
-      }
   
-      if (!latestTimestampWithData) {
-        // 表示最近 200 筆裡都沒有該測站有效數據，直接視為超過 12 小時
-        console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
-        await broadcastNoDataWarning(stationId);
-        return;
-      }
+        if (!latestTimestampWithData) {
+            console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
+            await broadcastNoDataWarning(stationId);
+            return;
+        }
   
-      // 3. 判斷 latestTimestampWithData 與現在時間差
-      const now = Date.now();
-      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-      if (now - latestTimestampWithData > TWELVE_HOURS) {
-        // 超過 12 小時
-        console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
-        await broadcastNoDataWarning(stationId, latestTimeString);
-      } else {
-        console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
-      }
+        const now = Date.now();
+        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+        if (now - latestTimestampWithData > TWELVE_HOURS) {
+            console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
+            await broadcastNoDataWarning(stationId, latestTimeString);
+        } else {
+            console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
+        }
     } catch (error) {
-      console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
+        console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
     }
-  }
+}
   
-  // 範例的廣播函式
-  async function broadcastNoDataWarning(stationId, timeString) {
-    // timeString 可能是 "2025/03/25 09:28" 之類的字串
-    // 若找不到任何有效紀錄，可不顯示 timeString
+async function broadcastNoDataWarning(stationId, timeString) {
     let alertMessage = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
     if (timeString) {
-      alertMessage += `\n最後一次有數據時間：${timeString}`;
+        alertMessage += `\n最後一次有數據時間：${timeString}`;
     }
-    // 你也可以加上 appendQuotaInfo 或其他資訊
-    // alertMessage = await appendQuotaInfo(alertMessage);
-  
-    // 廣播出去
     await client.broadcast({ type: 'text', text: alertMessage });
-  } 
-
+}
+  
 async function getMessageQuota() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota', {
@@ -441,7 +380,7 @@ async function getMessageQuota() {
         return null;
     }
 }
-
+  
 async function getMessageQuotaConsumption() {
     try {
         const response = await axios.get('https://api.line.me/v2/bot/message/quota/consumption', {
@@ -455,7 +394,7 @@ async function getMessageQuotaConsumption() {
         return null;
     }
 }
-
+  
 async function appendQuotaInfo(messageText) {
     const quota = await getMessageQuota();
     const consumption = await getMessageQuotaConsumption();
@@ -470,9 +409,9 @@ async function appendQuotaInfo(messageText) {
     }
     return messageText;
 }
-
+  
 // ----------------------- 新增：檢查並更新使用者互動資料功能 -----------------------
-
+  
 async function checkAndUpdateUserProfile(userId, interactionItem) {
     const now = moment().tz('Asia/Taipei').format('YYYY-MM-DD HH:mm:ss');
     const snapshot = await db.ref(`users/${userId}`).once('value');
@@ -500,9 +439,9 @@ async function checkAndUpdateUserProfile(userId, interactionItem) {
         console.log(`使用者 ${userId} 的互動資料已更新`);
     }
 }
-
+  
 // ----------------------- 使用者資料相關功能 -----------------------
-
+  
 async function handleFollowEvent(event) {
     const userId = event.source.userId;
     try {
@@ -523,7 +462,7 @@ async function handleFollowEvent(event) {
         text: `感謝您加入！`
     });
 }
-
+  
 async function updateAllUserProfiles() {
     try {
         const snapshot = await db.ref('users').once('value');
@@ -548,22 +487,20 @@ async function updateAllUserProfiles() {
         console.error('❌ 更新所有使用者資料失敗：', error);
     }
 }
-
+  
 // ----------------------- LINE Bot 事件處理 -----------------------
-
+  
 const lineConfig = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
     channelSecret: process.env.LINE_CHANNEL_SECRET
 };
-
+  
 const client = new line.Client(lineConfig);
-
+  
 async function handleEvent(event) {
-    // 處理 follow 事件
     if (event.type === 'follow') {
         return handleFollowEvent(event);
     }
-    // 若為文字訊息事件，先檢查並更新使用者互動資料
     if (event.type === 'message' && event.message.type === 'text') {
         const userId = event.source.userId;
         const receivedMessage = event.message.text;
@@ -571,11 +508,10 @@ async function handleEvent(event) {
         
         let replyMessage = '';
         const recognizedCommands = ["即時查詢", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
-
-        // 檢查使用者等待設定狀態（存於 Firebase users/{userId}/waitingForSetting）
+  
         let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
         let waitingForSetting = waitingSnapshot.val() || null;
-
+  
         if (waitingForSetting !== null) {
             if (receivedMessage === "取消") {
                 await db.ref(`users/${userId}/waitingForSetting`).remove();
@@ -584,7 +520,6 @@ async function handleEvent(event) {
                     text: '已取消設定。'
                 });
             } else if (recognizedCommands.includes(receivedMessage)) {
-                // 若收到其他預設指令，先清除等待狀態，再進入新指令流程
                 await db.ref(`users/${userId}/waitingForSetting`).remove();
             } else {
                 if (waitingForSetting === "PM10_THRESHOLD") {
@@ -620,8 +555,7 @@ async function handleEvent(event) {
                 }
             }
         }
-
-        // 處理一般指令
+  
         if (receivedMessage === '即時查詢') {
             console.log('執行即時查詢');
             const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
@@ -851,35 +785,35 @@ async function handleEvent(event) {
                 return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
             }
         }
-
+  
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
     return Promise.resolve(null);
 }
-
+  
 // ----------------------- Express 路由與定時排程 -----------------------
-
+  
 const recordsDir = path.join(__dirname, 'records');
 if (!fs.existsSync(recordsDir)) {
     fs.mkdirSync(recordsDir);
 }
-
+  
 app.get('/download/24hr_record.txt', (req, res) => {
     const filePath = path.join(__dirname, 'records', '24hr_record.txt');
     res.download(filePath);
 });
-
+  
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
     Promise.all(req.body.events.map(handleEvent))
         .then((result) => res.json(result))
         .catch((err) => console.error(err));
 });
-
+  
 app.post('/ping', (req, res) => {
     console.log('來自 pinger-app 的訊息:', req.body);
     res.json({ message: 'pong' });
 });
-
+  
 function sendPing() {
     axios.post('https://pinger-app-m1tm.onrender.com/ping', { message: 'ping' })
         .then(response => {
@@ -894,15 +828,14 @@ function sendPing() {
         });
 }
 setInterval(sendPing, 10 * 60 * 1000);
-setInterval(checkFetchStatus, 60 * 60 * 1000);
 setInterval(updateAllUserProfiles, 24 * 60 * 60 * 1000);
-
+  
 loginAndFetchPM10Data();
 monitorScrapeInterval();
 monitorPM10Threshold();
 monitorAlertInterval();
 restartFetchInterval();
-
+  
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`🌐 LINE Bot webhook 監聽中... 端口: ${PORT}`);
