@@ -28,8 +28,27 @@ admin.initializeApp({
 });
 const db = admin.database();
 
+// ----------------------- Puppeteer 擷取大城測站 PM10 -----------------------
+async function fetchPM10FromDacheng() {
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto('https://airtw.moenv.gov.tw/', { waitUntil: 'networkidle2' });
+  
+    // 選擇彰化縣
+    await page.select('#ddl_county', 'Changhua');
+    await page.waitForTimeout(1000);
+    // 選擇大城測站 (value=136)
+    await page.select('#ddl_site', '136');
+    await page.waitForTimeout(2000);
+    
+    // 擷取 PM10 小時濃度
+    const pm10 = await page.$eval('#PM10', el => parseInt(el.textContent.trim(), 10));
+  
+    await browser.close();
+    return pm10;
+  }
+  
 // ----------------------- Firebase 設定相關函式 -----------------------
-
 async function getFirebaseSettings() {
     const snapshot = await db.ref('settings').once('value');
     return snapshot.val() || {};
@@ -182,7 +201,8 @@ async function saveToFirebase(mergedData, lastTimestamp) {
         await dataRef.child(timestampKey).set({
             time: entry.time,
             station_184: entry.station_184 || null,
-            station_185: entry.station_185 || null
+            station_185: entry.station_185 || null,
+            station_dacheng: entry.station_dacheng || null // 新增大城測站欄位
         });
         console.log(`✅ 已存入 Firebase: ${entry.time} (timestamp: ${entry.timestamp})`);
     }
@@ -267,17 +287,30 @@ async function loginAndFetchPM10Data() {
             await checkStationDataInFirebase('185');
         }
 
+        // 抓取大城測站
+        let stationDacheng = null;
+        try {
+            stationDacheng = await fetchPM10FromDacheng();
+            console.log(`✅ 大城測站 小時濃度: ${stationDacheng}`);
+        } catch (err) {
+            console.error('❌ 抓取大城測站 PM10 發生錯誤：', err.message);
+        }
+
         // 合併資料
         const allTimeKeys = new Set([
             ...Object.keys(station184Data),
             ...Object.keys(station185Data)
         ]);
-        const mergedData = Array.from(allTimeKeys).map((time) => ({
-            time,
-            timestamp: moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf(),
-            station_184: station184Data[time] || null,
-            station_185: station185Data[time] || null
-        }));
+        const mergedData = Array.from(allTimeKeys).map(time => {
+            const ts = moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf();
+            return {
+              time,
+              timestamp: ts,
+              station_184: station184Data[time] || null,
+              station_185: station185Data[time] || null,
+              station_dacheng: (ts === endTimeTimestamp && stationDacheng !== null) ? stationDacheng : null
+            };
+        });
 
         if (mergedData.length > 0) {
             await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
@@ -781,7 +814,7 @@ async function handleEvent(event) {
                 let userListText = `總使用者數量：${userCount}\n\n`;
                 for (const [uid, user] of filteredUsers) {
                     const lastTime = user.lastInteractionTime || '無';
-                    userListText += `${user.displayName} (最後互動時間: ${lastTime})\n`;
+                    userListText += `${user.displayName} (最近互動時間: ${lastTime})\n`;
                 }
         
                 return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
