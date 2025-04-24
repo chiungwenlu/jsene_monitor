@@ -773,19 +773,23 @@ async function handleEvent(event) {
             try {
                 const snapshot = await db.ref('users').once('value');
                 const usersData = snapshot.val() || {};
-                const userCount = Object.keys(usersData).length;
+                
+                // 過濾掉 displayName 為「呂炯文」的使用者
+                const filteredUsers = Object.entries(usersData).filter(([uid, user]) => user.displayName !== '呂炯文');
+                const userCount = filteredUsers.length;
+        
                 let userListText = `總使用者數量：${userCount}\n\n`;
-                for (const uid in usersData) {
-                    const user = usersData[uid];
+                for (const [uid, user] of filteredUsers) {
                     const lastTime = user.lastInteractionTime || '無';
                     userListText += `${user.displayName} (最後互動時間: ${lastTime})\n`;
                 }
+        
                 return client.replyMessage(event.replyToken, { type: 'text', text: userListText });
             } catch (err) {
                 return client.replyMessage(event.replyToken, { type: 'text', text: '查詢使用者資料失敗，請稍後再試。' });
             }
         }
-  
+   
         return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
     }
     return Promise.resolve(null);
