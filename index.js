@@ -116,20 +116,33 @@ function restartFetchInterval() {
 }
 
 // ----------------------- PM10 數據抓取與處理相關函式 -----------------------
-
 async function getDynamicDataURL(stationId) {
     const now = moment().tz('Asia/Taipei');
     const endTime = now.format('YYYY/MM/DD HH:mm');
-    let lastFetchTime = await getLastFetchTime();
-    if (!lastFetchTime) {
-        lastFetchTime = now.clone().subtract(scrapeInterval / 60000, 'minutes').format('YYYY/MM/DD HH:mm');
+  
+    // 取得上次抓取時間（timestamp in ms 或 null）
+    let lastFetch = await getLastFetchTime();
+    let d1Moment;
+    if (lastFetch) {
+      d1Moment = moment(lastFetch).tz('Asia/Taipei');
     } else {
-        lastFetchTime = moment(lastFetchTime).tz('Asia/Taipei').format('YYYY/MM/DD HH:mm');
+      // 第一次抓取：從 scrapeInterval 之前開始
+      d1Moment = now.clone().subtract(scrapeInterval / 60000, 'minutes');
     }
-    console.log(`🕒 測站 ${stationId} 目標時間範圍 (UTC+8): ${lastFetchTime} ~ ${endTime}`);
+  
+    // <-- 這是關鍵：往前推 1 分鐘，確保能含括上次 d1 的那筆
+    d1Moment = d1Moment.subtract(1, 'minute');
+  
+    const startTime = d1Moment.format('YYYY/MM/DD HH:mm');
+  
+    console.log(`🕒 測站 ${stationId} 目標時間範圍 (UTC+8): ${startTime} ~ ${endTime}`);
+  
     return {
-        url: `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}&d1=${encodeURIComponent(lastFetchTime)}&d2=${encodeURIComponent(endTime)}&tt=T01&f=0&col=1,2,3,9,10,11`,
-        endTimeTimestamp: now.valueOf()
+      url: `https://www.jsene.com/juno/jGrid.aspx?PJ=200209&ST=${stationId}` +
+           `&d1=${encodeURIComponent(startTime)}` +
+           `&d2=${encodeURIComponent(endTime)}` +
+           `&tt=T01&f=0&col=1,2,3,9,10,11`,
+      endTimeTimestamp: now.valueOf()
     };
 }
 
