@@ -326,6 +326,7 @@ async function loginAndFetchPM10Data() {
         if (!endTimeTimestamp || resultD.timestamp > endTimeTimestamp) {
           endTimeTimestamp = resultD.timestamp;
         }
+        console.log(`大城站PM10: ${resultD.value}`);
         console.log(`✅ 大城測站抓取成功，共 ${Object.keys(stationDachengData).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取大城測站發生錯誤：', err.message);
