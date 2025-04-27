@@ -232,30 +232,42 @@ async function pruneOldData() {
     console.log(`✅ 已刪除超過 24 小時前的舊資料（截止時間戳：${cutoff}）。`);
 }
 
+/**
+ * 將合併後的資料寫入 Firebase
+ * - 已存在的 timestamp 節點：僅更新 station_dacheng，不動原本的 station_184 / station_185
+ * - 不存在的 timestamp 節點：一次 set 所有三個欄位
+ */
 async function saveToFirebase(mergedData, lastTimestamp) {
     const dataRef = db.ref('pm10_records');
     for (const entry of mergedData) {
       const tsKey = entry.timestamp.toString();
       const recordRef = dataRef.child(tsKey);
   
-      // 先用 update 同時處理三個站點
-      // update() 會建立不存在的 child 屬性，不會覆蓋其他屬性
-      try {
+      // 讀取現有資料
+      const snap = await recordRef.once('value');
+      if (snap.exists()) {
+        // 已有此時間點：只更新大城測站欄位
         await recordRef.update({
-          time: entry.time,                   // 確保 time 欄位也正確
+          station_dacheng: entry.station_dacheng || null
+        });
+        console.log(`✅ 已更新 Firebase（大城）：${entry.time} → ${entry.station_dacheng}`);
+      } else {
+        // 新時間點：一次寫入全部三個站點欄位
+        await recordRef.set({
+          time: entry.time,
           station_184: entry.station_184 || null,
           station_185: entry.station_185 || null,
           station_dacheng: entry.station_dacheng || null
         });
-        console.log(`✅ 已 update Firebase (包含大城): ${entry.time} → station_dacheng=${entry.station_dacheng}`);
-      } catch (e) {
-        console.error(`❌ 更新 ${entry.time} 失敗：`, e);
+        console.log(`✅ 已新增 Firebase：${entry.time}`);
       }
     }
   
+    // 更新最後抓取時間並清理舊資料
     await updateLastFetchTime(lastTimestamp);
     await pruneOldData();
-}  
+}
+   
   
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
