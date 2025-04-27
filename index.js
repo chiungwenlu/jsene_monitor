@@ -179,42 +179,46 @@ async function fetchPM10FromDacheng() {
     console.log('📊 嘗試抓取大城測站的數據...');
     const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
-    await page.goto('https://airtw.moenv.gov.tw/', { waitUntil: 'networkidle2' });
   
-    // 選擇 縣市 = 彰化縣
+    // 延長導航逾時時間到 60 秒
+    page.setDefaultNavigationTimeout(60000);
+  
+    // 改用 DOMContentLoaded 以免一直等 networkidle2
+    await page.goto('https://airtw.moenv.gov.tw/', { waitUntil: 'domcontentloaded' });
+  
+    // 選 縣市 = 彰化縣
     await page.select('#ddl_county', 'Changhua');
+    // 等待測站下拉選單包含「大城」
     await page.waitForFunction(() => {
       const ddl = document.querySelector('#ddl_site');
       return ddl && Array.from(ddl.options).some(o => o.value === '136');
-    }, { timeout: 5000 });
+    }, { timeout: 10000 });
   
-    // 選擇 測站 = 大城
+    // 選 測站 = 大城
     await page.select('#ddl_site', '136');
   
-    // 等待 PM10 數值出現
-    await page.waitForSelector('#PM10', { timeout: 5000 });
-    await page.waitForFunction(() => {
-      const el = document.querySelector('#PM10');
-      return el && el.textContent.trim().length > 0;
-    }, { timeout: 5000 });
+    // 等待 PM10 出現
+    await page.waitForSelector('#PM10', { timeout: 10000 });
   
-    // 擷取 PM10 值與時間
+    // 讀取 PM10 值
     const txt = await page.$eval('#PM10', el => el.textContent.trim());
     const value = parseInt(txt, 10);
     if (isNaN(value)) {
       await browser.close();
-      throw new Error(`解析後非數字: "${txt}"`);
+      throw new Error(`解析 PM10 失敗: "${txt}"`);
     }
-    // 取得顯示時間 (格式 "YYYY/MM/DD HH:mm")
+  
+    // 讀取畫面上顯示的時間 (節點 <div class="date"> 的文字節點)
     const dateTime = await page.$eval('.date', el => el.childNodes[0].textContent.trim());
     const timestamp = moment.tz(dateTime, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf();
   
-    // 更新大城測站追蹤變數
+    // 更新大城追蹤時間
     const now = Date.now();
     if (!firstAttemptTimeDacheng) firstAttemptTimeDacheng = now;
     lastSuccessfulTimeDacheng = now;
   
     await browser.close();
+    console.log(`✅ 大城測站時間：${dateTime}，PM10：${value}`);
     return { time: dateTime, timestamp, value };
 }
 
