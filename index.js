@@ -326,7 +326,7 @@ async function loginAndFetchPM10Data() {
         if (!endTimeTimestamp || resultD.timestamp > endTimeTimestamp) {
           endTimeTimestamp = resultD.timestamp;
         }
-        console.log(`大城站PM10: ${resultD.value}`);
+        console.log(`1. 大城站PM10: ${resultD.value}`);
         console.log(`✅ 大城測站抓取成功，共 ${Object.keys(stationDachengData).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取大城測站發生錯誤：', err.message);
@@ -346,6 +346,11 @@ async function loginAndFetchPM10Data() {
         station_185: station185Data[time] || null,
         station_dacheng: stationDachengData[time] || null
       }));
+
+      // **印出全部合併後資料，方便確認**
+        console.log('===== 全部合併後的 PM10 資料 =====');
+        console.log(JSON.stringify(mergedData, null, 2));
+        console.log('=================================');
   
       if (mergedData.length > 0) {
         await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
