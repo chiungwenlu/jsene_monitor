@@ -372,6 +372,17 @@ async function loginAndFetchPM10Data() {
         station_dacheng: stationDachengData[time] || null
       }));
 
+      // ── 用大城站最後整點值填滿後續筆數
+      mergedData.sort((a, b) => a.timestamp - b.timestamp);
+      let lastDacheng = null;
+      for (const entry of mergedData) {
+        if (entry.station_dacheng !== null) {
+          lastDacheng = entry.station_dacheng;
+        } else {
+          entry.station_dacheng = lastDacheng;
+        }
+      }
+
       // **印出全部合併後資料，方便確認**
         console.log('===== 全部合併後的 PM10 資料 =====');
         console.log(JSON.stringify(mergedData, null, 2));
@@ -677,9 +688,11 @@ async function handleEvent(event) {
   
         if (receivedMessage === '即時查詢') {
             console.log('執行即時查詢');
+
             const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
             const latestData = snapshot.val();
             const nowTime = moment().tz('Asia/Taipei');
+
             if (latestData) {
                 const latestPM10 = Object.values(latestData)[0];
                 const latestTime = moment.tz(latestPM10.time, "YYYY/MM/DD HH:mm", "Asia/Taipei");
