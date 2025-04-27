@@ -231,30 +231,27 @@ async function pruneOldData() {
 async function saveToFirebase(mergedData, lastTimestamp) {
     const dataRef = db.ref('pm10_records');
     for (const entry of mergedData) {
-      const key = entry.timestamp.toString();
-      // 如果這筆資料已存在，就只更新 station_dacheng；不存在才整筆寫入
-      const recordRef = dataRef.child(key);
-      const snapshot = await recordRef.once('value');
-      if (snapshot.exists()) {
-        // 只更新大城欄位，不動原本的 184/185
+      const tsKey = entry.timestamp.toString();
+      const recordRef = dataRef.child(tsKey);
+  
+      // 先用 update 同時處理三個站點
+      // update() 會建立不存在的 child 屬性，不會覆蓋其他屬性
+      try {
         await recordRef.update({
-          station_dacheng: entry.station_dacheng || null
-        });
-        console.log(`✅ 已更新 Firebase（大城欄位）: ${entry.time} → ${entry.station_dacheng}`);
-      } else {
-        // 新時間點，三個欄位都要存
-        await recordRef.set({
-          time: entry.time,
+          time: entry.time,                   // 確保 time 欄位也正確
           station_184: entry.station_184 || null,
           station_185: entry.station_185 || null,
           station_dacheng: entry.station_dacheng || null
         });
-        console.log(`✅ 已新增 Firebase: ${entry.time}`);
+        console.log(`✅ 已 update Firebase (包含大城): ${entry.time} → station_dacheng=${entry.station_dacheng}`);
+      } catch (e) {
+        console.error(`❌ 更新 ${entry.time} 失敗：`, e);
       }
     }
+  
     await updateLastFetchTime(lastTimestamp);
     await pruneOldData();
-}
+}  
   
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
@@ -463,6 +460,9 @@ async function checkStationDataInFirebase(stationId) {
 }
   
 async function broadcastNoDataWarning(stationId, timeString) {
+    // 先跳過大城測站
+    if (stationId === 'dacheng') return;
+
     let alertMessage = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
     if (timeString) {
         alertMessage += `\n最後一次有數據時間：${timeString}`;
