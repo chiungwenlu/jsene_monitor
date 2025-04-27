@@ -231,19 +231,31 @@ async function pruneOldData() {
 async function saveToFirebase(mergedData, lastTimestamp) {
     const dataRef = db.ref('pm10_records');
     for (const entry of mergedData) {
-        const timestampKey = entry.timestamp.toString();
-        await dataRef.child(timestampKey).set({
-            time: entry.time,
-            station_184: entry.station_184 || null,
-            station_185: entry.station_185 || null,
-            station_dacheng: entry.station_dacheng || null // 新增大城測站欄位
+      const key = entry.timestamp.toString();
+      // 如果這筆資料已存在，就只更新 station_dacheng；不存在才整筆寫入
+      const recordRef = dataRef.child(key);
+      const snapshot = await recordRef.once('value');
+      if (snapshot.exists()) {
+        // 只更新大城欄位，不動原本的 184/185
+        await recordRef.update({
+          station_dacheng: entry.station_dacheng || null
         });
-        console.log(`✅ 已存入 Firebase: ${entry.time} (timestamp: ${entry.timestamp})`);
+        console.log(`✅ 已更新 Firebase（大城欄位）: ${entry.time} → ${entry.station_dacheng}`);
+      } else {
+        // 新時間點，三個欄位都要存
+        await recordRef.set({
+          time: entry.time,
+          station_184: entry.station_184 || null,
+          station_185: entry.station_185 || null,
+          station_dacheng: entry.station_dacheng || null
+        });
+        console.log(`✅ 已新增 Firebase: ${entry.time}`);
+      }
     }
     await updateLastFetchTime(lastTimestamp);
     await pruneOldData();
 }
-
+  
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
     const lastAlertTime = await getLastAlertTimeForStation('global');
