@@ -16,9 +16,11 @@ let alertInterval = 60; // 預設為 60 分鐘
 
 // 新增全域變數：記錄各測站抓取成功與第一次嘗試時間
 let lastSuccessfulTime184 = null;
-let lastSuccessfulTime185 = null;
 let firstAttemptTime184 = null;
+let lastSuccessfulTime185 = null;
 let firstAttemptTime185 = null;
+let lastSuccessfulTimeDacheng = null;
+let firstAttemptTimeDacheng = null;
 
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -28,26 +30,6 @@ admin.initializeApp({
 });
 const db = admin.database();
 
-// ----------------------- Puppeteer 擷取大城測站 PM10 -----------------------
-async function fetchPM10FromDacheng() {
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto('https://airtw.moenv.gov.tw/', { waitUntil: 'networkidle2' });
-  
-    // 選擇彰化縣
-    await page.select('#ddl_county', 'Changhua');
-    await page.waitForTimeout(1000);
-    // 選擇大城測站 (value=136)
-    await page.select('#ddl_site', '136');
-    await page.waitForTimeout(2000);
-    
-    // 擷取 PM10 小時濃度
-    const pm10 = await page.$eval('#PM10', el => parseInt(el.textContent.trim(), 10));
-  
-    await browser.close();
-    return pm10;
-  }
-  
 // ----------------------- Firebase 設定相關函式 -----------------------
 async function getFirebaseSettings() {
     const snapshot = await db.ref('settings').once('value');
@@ -55,17 +37,25 @@ async function getFirebaseSettings() {
 }
 
 async function getLastAlertTimeForStation(stationId) {
-    const key = (stationId === '184') ? 'last_alert_time_184' : 'last_alert_time_185';
+    let key;
+    if (stationId === '184') key = 'last_alert_time_184';
+    else if (stationId === '185') key = 'last_alert_time_185';
+    else if (stationId === 'dacheng') key = 'last_alert_time_dacheng';
+    else key = `last_alert_time_${stationId}`;
     const snapshot = await db.ref('settings/' + key).once('value');
     return snapshot.val() || null;
 }
 
 async function updateLastAlertTimeForStation(stationId, timestamp) {
-    const key = (stationId === '184') ? 'last_alert_time_184' : 'last_alert_time_185';
+    let key;
+    if (stationId === '184') key = 'last_alert_time_184';
+    else if (stationId === '185') key = 'last_alert_time_185';
+    else if (stationId === 'dacheng') key = 'last_alert_time_dacheng';
+    else key = `last_alert_time_${stationId}`;
     await db.ref('settings/' + key).set(timestamp);
 }
-
-async function getLastFetchTime() {
+  
+  async function getLastFetchTime() {
     const snapshot = await db.ref('settings/last_fetch_time').once('value');
     return snapshot.val() || null;
 }
@@ -184,6 +174,50 @@ async function fetchStationData(page, stationId) {
     };
 }
 
+// 抓取大城站
+async function fetchPM10FromDacheng() {
+    console.log('📊 嘗試抓取大城測站的數據...');
+    const browser = await puppeteer.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.goto('https://airtw.moenv.gov.tw/', { waitUntil: 'networkidle2' });
+  
+    // 選擇 縣市 = 彰化縣
+    await page.select('#ddl_county', 'Changhua');
+    await page.waitForFunction(() => {
+      const ddl = document.querySelector('#ddl_site');
+      return ddl && Array.from(ddl.options).some(o => o.value === '136');
+    }, { timeout: 5000 });
+  
+    // 選擇 測站 = 大城
+    await page.select('#ddl_site', '136');
+  
+    // 等待 PM10 數值出現
+    await page.waitForSelector('#PM10', { timeout: 5000 });
+    await page.waitForFunction(() => {
+      const el = document.querySelector('#PM10');
+      return el && el.textContent.trim().length > 0;
+    }, { timeout: 5000 });
+  
+    // 擷取 PM10 值與時間
+    const txt = await page.$eval('#PM10', el => el.textContent.trim());
+    const value = parseInt(txt, 10);
+    if (isNaN(value)) {
+      await browser.close();
+      throw new Error(`解析後非數字: "${txt}"`);
+    }
+    // 取得顯示時間 (格式 "YYYY/MM/DD HH:mm")
+    const dateTime = await page.$eval('.date', el => el.childNodes[0].textContent.trim());
+    const timestamp = moment.tz(dateTime, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf();
+  
+    // 更新大城測站追蹤變數
+    const now = Date.now();
+    if (!firstAttemptTimeDacheng) firstAttemptTimeDacheng = now;
+    lastSuccessfulTimeDacheng = now;
+  
+    await browser.close();
+    return { time: dateTime, timestamp, value };
+}
+
 async function pruneOldData() {
     const cutoff = moment().subtract(24, 'hours').valueOf();
     const dataRef = db.ref('pm10_records');
@@ -212,31 +246,33 @@ async function saveToFirebase(mergedData, lastTimestamp) {
 
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const now = moment().tz('Asia/Taipei').valueOf();
-    const lastAlertTime = await getLastAlertTimeForStation('global'); // 若有全局警報可設定，但本例僅檢查單站
+    const lastAlertTime = await getLastAlertTimeForStation('global');
     if (lastAlertTime && now - lastAlertTime < alertInterval * 60 * 1000) {
-        console.log('⚠️ 警告間隔內，不發送新的警告。');
-        return;
+      console.log('⚠️ 警告間隔內，不發送新的警告。');
+      return;
     }
     let alertMessages = [];
     let alertHeader = "🚨 PM10 超標警報！\n\n";
     for (const entry of mergedData) {
-        let stationAlerts = [];
-        if (entry.station_184 && entry.station_184 > pm10Threshold) {
-            stationAlerts.push(`🌍 測站184堤外PM10值：${entry.station_184} µg/m³`);
-        }
-        if (entry.station_185 && entry.station_185 > pm10Threshold) {
-            stationAlerts.push(`🌍 測站185堤上PM10值：${entry.station_185} µg/m³`);
-        }
-        if (stationAlerts.length > 0) {
-            alertMessages.push(`📅 時間: ${entry.time}\n${stationAlerts.join("\n")}`);
-        }
+      let stationAlerts = [];
+      if (entry.station_184 && entry.station_184 > pm10Threshold) {
+        stationAlerts.push(`🌍 測站184堤外PM10值：${entry.station_184} µg/m³`);
+      }
+      if (entry.station_185 && entry.station_185 > pm10Threshold) {
+        stationAlerts.push(`🌍 測站185堤上PM10值：${entry.station_185} µg/m³`);
+      }
+      if (entry.station_dacheng && entry.station_dacheng > pm10Threshold) {
+        stationAlerts.push(`🌍 大城測站PM10值：${entry.station_dacheng} µg/m³`);
+      }
+      if (stationAlerts.length > 0) {
+        alertMessages.push(`📅 時間: ${entry.time}\n${stationAlerts.join("\n")}`);
+      }
     }
     if (alertMessages.length > 0) {
-        let finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
-        finalAlertMessage = await appendQuotaInfo(finalAlertMessage);
-        console.log(finalAlertMessage);
-        // 此處不更新單站 lastAlertTime，因為我們分別在各測站通知時更新
-        await client.broadcast({ type: 'text', text: finalAlertMessage });
+      let finalAlertMessage = `${alertHeader}${alertMessages.join("\n\n")}\n\n⚠️ **PM10濃度≧${pm10Threshold} µg/m³，請啟動水線抑制揚塵**`;
+      finalAlertMessage = await appendQuotaInfo(finalAlertMessage);
+      console.log(finalAlertMessage);
+      await client.broadcast({ type: 'text', text: finalAlertMessage });
     }
 }
 
@@ -247,148 +283,164 @@ async function loginAndFetchPM10Data() {
     const settings = await getFirebaseSettings();
     const username = settings.ACCOUNT_NAME || 'ExcelTek';
     const password = settings.ACCOUNT_PASSWORD || 'ExcelTek';
-    console.log(`🔹 設定 - 抓取間隔: ${scrapeInterval / 60000} 分鐘, 警告間隔: ${alertInterval} 分鐘, PM10 閾值: ${pm10Threshold}`);
-
+    console.log(`🔹 設定 - 抓取間隔: ${scrapeInterval/60000} 分鐘, 警告間隔: ${alertInterval} 分鐘, PM10 閾值: ${pm10Threshold}`);
+  
     try {
-        await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
-        await page.type('#T_Account', username);
-        await page.type('#T_Password', password);
-        await Promise.all([
-            page.click('#Btn_Login'),
-            page.waitForNavigation({ waitUntil: 'networkidle2' })
-        ]);
-        console.log('✅ 成功登入，開始抓取數據...');
-
-        let station184Data = {};
-        let station185Data = {};
-        let endTimeTimestamp = null;
-
-        // 嘗試抓取測站 184
-        try {
-            const result184 = await fetchStationData(page, '3100184');
-            station184Data = result184.data;
-            endTimeTimestamp = result184.endTimeTimestamp;
-            console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
-        } catch (err) {
-            console.error('❌ 抓取測站 184 發生錯誤：', err.message);
-            await checkStationDataInFirebase('184');
+      // 登入 Juno
+      await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
+      await page.type('#T_Account', username);
+      await page.type('#T_Password', password);
+      await Promise.all([
+        page.click('#Btn_Login'),
+        page.waitForNavigation({ waitUntil: 'networkidle2' })
+      ]);
+      console.log('✅ 成功登入，開始抓取數據...');
+  
+      // 抓取測站 184、185
+      let station184Data = {}, station185Data = {};
+      let endTimeTimestamp = null;
+      try {
+        const result184 = await fetchStationData(page, '3100184');
+        station184Data = result184.data;
+        endTimeTimestamp = result184.endTimeTimestamp;
+        console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
+      } catch (err) {
+        console.error('❌ 抓取測站 184 發生錯誤：', err.message);
+        await checkStationDataInFirebase('184');
+      }
+      try {
+        const result185 = await fetchStationData(page, '3100185');
+        station185Data = result185.data;
+        if (!endTimeTimestamp) endTimeTimestamp = result185.endTimeTimestamp;
+        console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
+      } catch (err) {
+        console.error('❌ 抓取測站 185 發生錯誤：', err.message);
+        await checkStationDataInFirebase('185');
+      }
+  
+      // 抓取大城測站
+      let stationDachengData = {};
+      try {
+        const resultD = await fetchPM10FromDacheng();
+        stationDachengData[resultD.time] = resultD.value;
+        if (!endTimeTimestamp || resultD.timestamp > endTimeTimestamp) {
+          endTimeTimestamp = resultD.timestamp;
         }
-
-        // 嘗試抓取測站 185
-        try {
-            const result185 = await fetchStationData(page, '3100185');
-            station185Data = result185.data;
-            if (!endTimeTimestamp) {
-                endTimeTimestamp = result185.endTimeTimestamp;
-            }
-            console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
-        } catch (err) {
-            console.error('❌ 抓取測站 185 發生錯誤：', err.message);
-            await checkStationDataInFirebase('185');
-        }
-
-        // 抓取大城測站
-        let stationDacheng = null;
-        try {
-            stationDacheng = await fetchPM10FromDacheng();
-            console.log(`✅ 大城測站 小時濃度: ${stationDacheng}`);
-        } catch (err) {
-            console.error('❌ 抓取大城測站 PM10 發生錯誤：', err.message);
-        }
-
-        // 合併資料
-        const allTimeKeys = new Set([
-            ...Object.keys(station184Data),
-            ...Object.keys(station185Data)
-        ]);
-        const mergedData = Array.from(allTimeKeys).map(time => {
-            const ts = moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf();
-            return {
-              time,
-              timestamp: ts,
-              station_184: station184Data[time] || null,
-              station_185: station185Data[time] || null,
-              station_dacheng: (ts === endTimeTimestamp && stationDacheng !== null) ? stationDacheng : null
-            };
-        });
-
-        if (mergedData.length > 0) {
-            await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
-            await saveToFirebase(mergedData, endTimeTimestamp);
-        } else {
-            console.warn('⚠️ 無任何測站資料成功抓取，跳過儲存與清除動作。');
-        }
-
-        // 新增：檢查各測站是否超過 12 小時無更新，並利用 Firebase 記錄上次通知時間
-        const now = Date.now();
-        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-        // 測站 184 檢查
-        const station184LastAlert = await getLastAlertTimeForStation('184');
-        if (((lastSuccessfulTime184 === null && firstAttemptTime184 && now - firstAttemptTime184 > TWELVE_HOURS) ||
-             (lastSuccessfulTime184 !== null && now - lastSuccessfulTime184 > TWELVE_HOURS))
-             && (!station184LastAlert || now - station184LastAlert > TWELVE_HOURS)) {
-            let alertMessage = "⚠️ 警告：測站 184 已失去數據超過 12 小時，請檢查系統狀態！";
-            alertMessage = await appendQuotaInfo(alertMessage);
-            console.log(alertMessage);
-            await client.broadcast({ type: 'text', text: alertMessage });
-            await updateLastAlertTimeForStation('184', now);
-        }
-        // 測站 185 檢查
-        const station185LastAlert = await getLastAlertTimeForStation('185');
-        if (((lastSuccessfulTime185 === null && firstAttemptTime185 && now - firstAttemptTime185 > TWELVE_HOURS) ||
-             (lastSuccessfulTime185 !== null && now - lastSuccessfulTime185 > TWELVE_HOURS))
-             && (!station185LastAlert || now - station185LastAlert > TWELVE_HOURS)) {
-            let alertMessage = "⚠️ 警告：測站 185 已失去數據超過 12 小時，請檢查系統狀態！";
-            alertMessage = await appendQuotaInfo(alertMessage);
-            console.log(alertMessage);
-            await client.broadcast({ type: 'text', text: alertMessage });
-            await updateLastAlertTimeForStation('185', now);
-        }
+        console.log(`✅ 大城測站抓取成功，共 ${Object.keys(stationDachengData).length} 筆資料`);
+      } catch (err) {
+        console.error('❌ 抓取大城測站發生錯誤：', err.message);
+        await checkStationDataInFirebase('dacheng');
+      }
+  
+      // 合併所有時間點
+      const allTimeKeys = new Set([
+        ...Object.keys(station184Data),
+        ...Object.keys(station185Data),
+        ...Object.keys(stationDachengData)
+      ]);  
+      const mergedData = Array.from(allTimeKeys).map(time => ({
+        time,
+        timestamp: moment.tz(time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf(),
+        station_184: station184Data[time] || null,
+        station_185: station185Data[time] || null,
+        station_dacheng: stationDachengData[time] || null
+      }));
+  
+      if (mergedData.length > 0) {
+        await checkPM10Threshold(mergedData, pm10Threshold, alertInterval);
+        await saveToFirebase(mergedData, endTimeTimestamp);
+      } else {
+        console.warn('⚠️ 無任何測站資料成功抓取，跳過儲存與清除動作。');
+      }
+  
+      // 定期 12 小時無資料檢查
+      const now = Date.now();
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+  
+      // 測站 184
+      const station184LastAlert = await getLastAlertTimeForStation('184');
+      if (((lastSuccessfulTime184 === null && firstAttemptTime184 && now - firstAttemptTime184 > TWELVE_HOURS) ||
+           (lastSuccessfulTime184 !== null && now - lastSuccessfulTime184 > TWELVE_HOURS))
+          && (!station184LastAlert || now - station184LastAlert > TWELVE_HOURS)) {
+        let alertMessage = "⚠️ 警告：測站 184 已失去數據超過 12 小時，請檢查系統狀態！";
+        alertMessage = await appendQuotaInfo(alertMessage);
+        console.log(alertMessage);
+        await client.broadcast({ type: 'text', text: alertMessage });
+        await updateLastAlertTimeForStation('184', now);
+      }
+  
+      // 測站 185
+      const station185LastAlert = await getLastAlertTimeForStation('185');
+      if (((lastSuccessfulTime185 === null && firstAttemptTime185 && now - firstAttemptTime185 > TWELVE_HOURS) ||
+           (lastSuccessfulTime185 !== null && now - lastSuccessfulTime185 > TWELVE_HOURS))
+          && (!station185LastAlert || now - station185LastAlert > TWELVE_HOURS)) {
+        let alertMessage = "⚠️ 警告：測站 185 已失去數據超過 12 小時，請檢查系統狀態！";
+        alertMessage = await appendQuotaInfo(alertMessage);
+        console.log(alertMessage);
+        await client.broadcast({ type: 'text', text: alertMessage });
+        await updateLastAlertTimeForStation('185', now);
+      }
+  
+      // 大城測站
+      const stationDachengLastAlert = await getLastAlertTimeForStation('dacheng');
+      if (((lastSuccessfulTimeDacheng === null && firstAttemptTimeDacheng && now - firstAttemptTimeDacheng > TWELVE_HOURS) ||
+           (lastSuccessfulTimeDacheng !== null && now - lastSuccessfulTimeDacheng > TWELVE_HOURS))
+          && (!stationDachengLastAlert || now - stationDachengLastAlert > TWELVE_HOURS)) {
+        let alertMessage = "⚠️ 警告：大城測站已失去數據超過 12 小時，請檢查系統狀態！";
+        alertMessage = await appendQuotaInfo(alertMessage);
+        console.log(alertMessage);
+        await client.broadcast({ type: 'text', text: alertMessage });
+        await updateLastAlertTimeForStation('dacheng', now);
+      }
+  
     } catch (err) {
-        console.error('❌ 整體抓取流程錯誤：', err.message);
+      console.error('❌ 整體抓取流程錯誤：', err.message);
     } finally {
-        await browser.close();
+      await browser.close();
     }
 }
 
 async function checkStationDataInFirebase(stationId) {
     try {
-        const snapshot = await db.ref('pm10_records')
-            .orderByKey()
-            .limitToLast(200)
-            .once('value');
-        const records = snapshot.val() || {};
+      const snapshot = await db.ref('pm10_records')
+        .orderByKey()
+        .limitToLast(200)
+        .once('value');
+      const records = snapshot.val() || {};
   
-        let latestTimestampWithData = null;
-        let latestTimeString = null;
-        const stationKey = (stationId === '184') ? 'station_184' : 'station_185';
+      let latestTimestampWithData = null;
+      let latestTimeString = null;
+      const stationKey = (stationId === '184') ? 'station_184'
+                       : (stationId === '185') ? 'station_185'
+                       : (stationId === 'dacheng') ? 'station_dacheng'
+                       : `station_${stationId}`;
   
-        for (const [tsKey, data] of Object.entries(records)) {
-            if (data[stationKey] !== null && data[stationKey] !== undefined) {
-                const ts = Number(tsKey);
-                if (!latestTimestampWithData || ts > latestTimestampWithData) {
-                    latestTimestampWithData = ts;
-                    latestTimeString = data.time;
-                }
-            }
+      for (const [tsKey, data] of Object.entries(records)) {
+        if (data[stationKey] !== null && data[stationKey] !== undefined) {
+          const ts = Number(tsKey);
+          if (!latestTimestampWithData || ts > latestTimestampWithData) {
+            latestTimestampWithData = ts;
+            latestTimeString = data.time;
+          }
         }
+      }
   
-        if (!latestTimestampWithData) {
-            console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
-            await broadcastNoDataWarning(stationId);
-            return;
-        }
+      if (!latestTimestampWithData) {
+        console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
+        await broadcastNoDataWarning(stationId);
+        return;
+      }
   
-        const now = Date.now();
-        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-        if (now - latestTimestampWithData > TWELVE_HOURS) {
-            console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
-            await broadcastNoDataWarning(stationId, latestTimeString);
-        } else {
-            console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
-        }
+      const now = Date.now();
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+      if (now - latestTimestampWithData > TWELVE_HOURS) {
+        console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
+        await broadcastNoDataWarning(stationId, latestTimeString);
+      } else {
+        console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
+      }
     } catch (error) {
-        console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
+      console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
     }
 }
   
@@ -604,6 +656,7 @@ async function handleEvent(event) {
 📅 時間: ${latestPM10.time}
 🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+🌍 大城測站: ${latestPM10.station_dacheng || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                     
                     const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -625,6 +678,9 @@ async function handleEvent(event) {
                                 alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
                                 hasAlert = true;
                             }
+                            if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
+                                alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
+                            }
                             if (hasAlert) {
                                 alertRecords.push(alertText);
                             }
@@ -640,6 +696,7 @@ async function handleEvent(event) {
                     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
                 }
             }
+            // 時差超過 1 分鐘，重新爬取
             console.log('⚠️ Firebase 資料已過時，重新爬取 PM10 數據...');
             await loginAndFetchPM10Data();
             const newSnapshot = await db.ref('pm10_records').limitToLast(1).once('value');
@@ -650,6 +707,7 @@ async function handleEvent(event) {
 📅 時間: ${latestPM10.time}
 🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
+🌍 大城測站: ${latestPM10.station_dacheng || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                 
                 const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -670,6 +728,9 @@ async function handleEvent(event) {
                         if (data.station_185 && data.station_185 > pm10Threshold) {
                             alertText += `\n🌍 測站185: ${data.station_185} µg/m³`;
                             hasAlert = true;
+                        }
+                        if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
+                            alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
                         }
                         if (hasAlert) {
                             alertRecords.push(alertText);
@@ -699,12 +760,13 @@ async function handleEvent(event) {
             }
             let recordText = '📡 PM10 24 小時記錄\n\n';
             let alertRecords = [];
-            let fileContent = '時間, 測站184(PM10), 測站185(PM10)\n';
+            let fileContent = '時間,測站184(PM10),測站185(PM10),測站大城(PM10)\n';
             for (const [timestamp, data] of Object.entries(records)) {
                 const time = data.time;
                 const station184 = data.station_184 || 'N/A';
                 const station185 = data.station_185 || 'N/A';
-                fileContent += `${time}, ${station184}, ${station185}\n`;
+                const stationDacheng  = data.station_dacheng || 'N/A';
+                fileContent += `${time},${station184},${station185},${stationDacheng}\n`;
                 let alertText = `📅 時間: ${time}`;
                 let hasAlert = false;
                 if (station184 !== 'N/A' && station184 > pm10Threshold) {
@@ -715,10 +777,14 @@ async function handleEvent(event) {
                     alertText += `\n🌍 測站185: ${station185} µg/m³`;
                     hasAlert = true;
                 }
+                if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
+                    alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
+                }
                 if (hasAlert) {
                     alertRecords.push(alertText);
                 }
             }
+            // 寫入檔案
             const filePath = path.join(__dirname, 'records', '24hr_record.txt');
             fs.writeFileSync(filePath, fileContent, 'utf8');
             if (alertRecords.length > 0) {
