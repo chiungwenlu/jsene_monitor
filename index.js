@@ -300,7 +300,7 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
         stationAlerts.push(`🌍 測站185堤上PM10值：${entry.station_185} µg/m³`);
       }
       if (entry.station_dacheng && entry.station_dacheng > pm10Threshold) {
-        stationAlerts.push(`🌍 大城測站PM10值：${entry.station_dacheng} µg/m³`);
+        stationAlerts.push(`🌍 測站大城PM10值：${entry.station_dacheng} µg/m³`);
       }
       if (stationAlerts.length > 0) {
         alertMessages.push(`📅 時間: ${entry.time}\n${stationAlerts.join("\n")}`);
@@ -441,7 +441,7 @@ async function loginAndFetchPM10Data() {
       if (((lastSuccessfulTimeDacheng === null && firstAttemptTimeDacheng && now - firstAttemptTimeDacheng > TWELVE_HOURS) ||
            (lastSuccessfulTimeDacheng !== null && now - lastSuccessfulTimeDacheng > TWELVE_HOURS))
           && (!stationDachengLastAlert || now - stationDachengLastAlert > TWELVE_HOURS)) {
-        let alertMessage = "⚠️ 警告：大城測站已失去數據超過 12 小時，請檢查系統狀態！";
+        let alertMessage = "⚠️ 警告：測站 大城已失去數據超過 12 小時，請檢查系統狀態！";
         alertMessage = await appendQuotaInfo(alertMessage);
         console.log(alertMessage);
         await client.broadcast({ type: 'text', text: alertMessage });
@@ -650,7 +650,7 @@ async function handleEvent(event) {
         await checkAndUpdateUserProfile(userId, receivedMessage);
         
         let replyMessage = '';
-        const recognizedCommands = ["即時查詢", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
+        const recognizedCommands = ["即時查詢", "即時查詢(視網站連線速度，查詢結果需等待30~60秒)", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
   
         let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
         let waitingForSetting = waitingSnapshot.val() || null;
@@ -699,7 +699,7 @@ async function handleEvent(event) {
             }
         }
   
-        if (receivedMessage === '即時查詢') {
+        if (receivedMessage === '即時查詢' || receivedMessage === '即時查詢(視網站連線速度，查詢結果需等待30~60秒)') {
             console.log('執行即時查詢');
 
             const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
@@ -716,7 +716,7 @@ async function handleEvent(event) {
 📅 時間: ${latestPM10.time}
 🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-🌍 大城測站: ${latestPM10.station_dacheng || 'N/A'} µg/m³
+🌍 測站大城: ${latestPM10.station_dacheng || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                     
                     const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -739,7 +739,7 @@ async function handleEvent(event) {
                                 hasAlert = true;
                             }
                             if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
-                                alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
+                                alertText += `\n🌍 測站大城: ${data.station_dacheng} µg/m³`; hasAlert = true;
                             }
                             if (hasAlert) {
                                 alertRecords.push(alertText);
@@ -767,7 +767,7 @@ async function handleEvent(event) {
 📅 時間: ${latestPM10.time}
 🌍 測站184堤外: ${latestPM10.station_184 || 'N/A'} µg/m³
 🌍 測站185堤上: ${latestPM10.station_185 || 'N/A'} µg/m³
-🌍 大城測站: ${latestPM10.station_dacheng || 'N/A'} µg/m³
+🌍 測站大城: ${latestPM10.station_dacheng || 'N/A'} µg/m³
 ⚠️ PM10 閾值: ${pm10Threshold} µg/m³`;
                 
                 const cutoff = moment().subtract(24, 'hours').valueOf();
@@ -790,7 +790,7 @@ async function handleEvent(event) {
                             hasAlert = true;
                         }
                         if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
-                            alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
+                            alertText += `\n🌍 測站大城: ${data.station_dacheng} µg/m³`; hasAlert = true;
                         }
                         if (hasAlert) {
                             alertRecords.push(alertText);
@@ -838,7 +838,7 @@ async function handleEvent(event) {
                     hasAlert = true;
                 }
                 if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
-                    alertText += `\n🌍 大城測站: ${data.station_dacheng} µg/m³`; hasAlert = true;
+                    alertText += `\n🌍 測站大城: ${data.station_dacheng} µg/m³`; hasAlert = true;
                 }
                 if (hasAlert) {
                     alertRecords.push(alertText);
