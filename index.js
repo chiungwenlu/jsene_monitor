@@ -115,6 +115,20 @@ function restartFetchInterval() {
     console.log(`✅ 設定新抓取間隔: 每 ${scrapeInterval / 60000} 分鐘執行一次`);
 }
 
+function scheduleDailyNightCheck() {
+    const now = moment().tz('Asia/Taipei');
+    const next8AM = now.clone().hour(8).minute(0).second(0);
+    if (now.isAfter(next8AM)) {
+        next8AM.add(1, 'day');
+    }
+    const delay = next8AM.diff(now);
+
+    setTimeout(() => {
+        checkNightTimeThresholds();
+        setInterval(checkNightTimeThresholds, 24 * 60 * 60 * 1000);
+    }, delay);
+}
+
 // ----------------------- PM10 數據抓取與處理相關函式 -----------------------
 async function getDynamicDataURL(stationId) {
     const now = moment().tz('Asia/Taipei');
@@ -280,9 +294,58 @@ async function saveToFirebase(mergedData, lastTimestamp) {
     await updateLastFetchTime(lastTimestamp);
     await pruneOldData();
 }
-   
+
+async function checkNightTimeThresholds() {
+    const now = moment().tz('Asia/Taipei');
+    const start = now.clone().startOf('day').subtract(6, 'hours'); // 昨天18:00
+    const end = now.clone().hour(8).minute(0).second(0); // 今天08:00
+
+    const snapshot = await db.ref('pm10_records')
+        .orderByKey()
+        .startAt(start.valueOf().toString())
+        .endAt(end.valueOf().toString())
+        .once('value');
+
+    const records = snapshot.val();
+    if (!records) return;
+
+    let alertMessages = [];
+    for (const [timestamp, data] of Object.entries(records)) {
+        const alerts = [];
+        if (data.station_184 && data.station_184 > pm10Threshold) {
+            alerts.push(`🌍 測站184: ${data.station_184} µg/m³`);
+        }
+        if (data.station_185 && data.station_185 > pm10Threshold) {
+            alerts.push(`🌍 測站185: ${data.station_185} µg/m³`);
+        }
+        if (data.station_dacheng && data.station_dacheng > pm10Threshold) {
+            alerts.push(`🌍 測站大城: ${data.station_dacheng} µg/m³`);
+        }
+        if (alerts.length > 0) {
+            alertMessages.push(`📅 時間: ${data.time}\n${alerts.join('\n')}`);
+        }
+    }
+
+    if (alertMessages.length > 0) {
+        let msg = `🌙 夜間 PM10 超標記錄（昨晚18:00～今日08:00）\n\n${alertMessages.join('\n\n')}\n\n⚠️ 請留意環境品質。`;
+        msg = await appendQuotaInfo(msg);
+        await client.broadcast({ type: 'text', text: msg });
+    }
+}
+  
   
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
+
+    // 檢查是否為警告發送時間 08:00 ~18:00
+    const nowMoment = moment().tz('Asia/Taipei');
+    const currentHour = nowMoment.hour();
+
+    if (currentHour < 8 || currentHour >= 18) {
+        console.log('🕗 非警示時間段（08:00~18:00），略過即時警示。');
+        return;
+    }
+
+    // 時間內才進行警告
     const now = moment().tz('Asia/Taipei').valueOf();
     const lastAlertTime = await getLastAlertTimeForStation('global');
     if (lastAlertTime && now - lastAlertTime < alertInterval * 60 * 1000) {
@@ -998,7 +1061,8 @@ monitorScrapeInterval();
 monitorPM10Threshold();
 monitorAlertInterval();
 restartFetchInterval();
-  
+scheduleDailyNightCheck();
+
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
     console.log(`🌐 LINE Bot webhook 監聽中... 端口: ${PORT}`);
