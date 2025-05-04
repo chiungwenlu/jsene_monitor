@@ -327,7 +327,7 @@ async function checkNightTimeThresholds() {
     }
 
     if (alertMessages.length > 0) {
-        let msg = `🌙 夜間 PM10 超標記錄（昨晚18:00～今日08:00）\n\n${alertMessages.join('\n\n')}\n\n⚠️ 請留意環境品質。`;
+        let msg = `🌙 夜間 PM10 超標記錄（昨晚18:00～今日08:00）\n\n${alertMessages.join('\n\n')}`;
         msg = await appendQuotaInfo(msg);
         await client.broadcast({ type: 'text', text: msg });
     }
@@ -610,7 +610,7 @@ async function appendQuotaInfo(messageText) {
             messageText += `\n\n免費廣播訊息數量: **${quota.value}**\n`;
             messageText += `已使用訊息數量: **${consumption.totalUsage}**\n`;
             messageText += `剩餘免費訊息數量: **${remaining}**\n`;
-            messageText += `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
+            messageText += `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超標之記錄。`;
         }
     }
     return messageText;
@@ -713,7 +713,7 @@ async function handleEvent(event) {
         await checkAndUpdateUserProfile(userId, receivedMessage);
         
         let replyMessage = '';
-        const recognizedCommands = ["即時查詢", "即時查詢(視網站連線速度，查詢結果需等待30~60秒)", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超閾值警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
+        const recognizedCommands = ["即時查詢", "即時查詢(視網站連線速度，查詢結果需等待30~60秒)", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超標警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
   
         let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
         let waitingForSetting = waitingSnapshot.val() || null;
@@ -749,14 +749,14 @@ async function handleEvent(event) {
                         await db.ref(`users/${userId}/waitingForSetting`).remove();
                         return client.replyMessage(event.replyToken, {
                             type: 'text',
-                            text: '輸入錯誤，超閾值警報間隔必須為 30~240 之間的數字，維持原設定並離開。'
+                            text: '輸入錯誤，超標警報間隔必須為 30~240 之間的數字，維持原設定並離開。'
                         });
                     }
                     await db.ref('settings/ALERT_INTERVAL').set(newValue);
                     await db.ref(`users/${userId}/waitingForSetting`).remove();
                     return client.replyMessage(event.replyToken, {
                         type: 'text',
-                        text: `已將超閾值警報間隔設定為 ${newValue} 分鐘`
+                        text: `已將超標警報間隔設定為 ${newValue} 分鐘`
                     });
                 }
             }
@@ -810,9 +810,9 @@ async function handleEvent(event) {
                         }
                     }
                     if (alertRecords.length > 0) {
-                        replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
+                        replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
                     } else {
-                        replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+                        replyMessage += `\n\n✅ 24小時內無超標記錄。`;
                     }
                     
                     replyMessage = await appendQuotaInfo(replyMessage);
@@ -861,9 +861,9 @@ async function handleEvent(event) {
                     }
                 }
                 if (alertRecords.length > 0) {
-                    replyMessage += `\n\n⚠️ 24小時內超過閾值記錄:\n${alertRecords.join("\n\n")}`;
+                    replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
                 } else {
-                    replyMessage += `\n\n✅ 24小時內無超過閾值記錄。`;
+                    replyMessage += `\n\n✅ 24小時內無超標記錄。`;
                 }
             } else {
                 replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
@@ -911,9 +911,9 @@ async function handleEvent(event) {
             const filePath = path.join(__dirname, 'records', '24hr_record.txt');
             fs.writeFileSync(filePath, fileContent, 'utf8');
             if (alertRecords.length > 0) {
-                recordText += '⚠️ 以下為超過 PM10 閾值的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
+                recordText += '⚠️ 以下為 PM10 超標的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
             } else {
-                recordText += '✅ 過去 24 小時內無數據超過 PM10 閾值。\n\n';
+                recordText += '✅ 過去 24 小時內無 PM10 數據超標。\n\n';
             }
             recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
             recordText = await appendQuotaInfo(recordText);
@@ -929,7 +929,7 @@ async function handleEvent(event) {
                 replyMessage = `📊 LINE 訊息發送狀態\n\n` +
                                `📩 免費廣播訊息數量: ${quota.value === -1 ? '無限' : quota.value}\n` +
                                `📤 已使用訊息數量: ${consumption.totalUsage}\n\n` +
-                               `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超過閾值之記錄。`;
+                               `免費訊息數量使用完畢後，系統將無法主動發出警告訊息。請自行查詢24小時記錄，以取得PM10數據超標之記錄。`;
             }
             return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
         }
@@ -937,9 +937,9 @@ async function handleEvent(event) {
             await db.ref(`users/${userId}/waitingForSetting`).set("PM10_THRESHOLD");
             return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的 PM10 閾值 (數字)：' });
         }
-        else if (receivedMessage === '超閾值警報間隔(分鐘)') {
+        else if (receivedMessage === '超標警報間隔(分鐘)') {
             await db.ref(`users/${userId}/waitingForSetting`).set("ALERT_INTERVAL");
-            return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超閾值警報間隔 (30~240 分鐘)：' });
+            return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的超標警報間隔 (30~240 分鐘)：' });
         }
         else if (receivedMessage === '顯示常用指令') {
             return client.replyMessage(event.replyToken, {
@@ -959,8 +959,8 @@ async function handleEvent(event) {
                             type: 'action',
                             action: {
                                 type: 'message',
-                                label: '超閾值警報間隔(分鐘)',
-                                text: '超閾值警報間隔(分鐘)'
+                                label: '超標警報間隔(分鐘)',
+                                text: '超標警報間隔(分鐘)'
                             }
                         },
                         {
