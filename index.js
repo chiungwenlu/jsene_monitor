@@ -388,7 +388,10 @@ async function loginAndFetchPM10Data() {
   
     try {
       // 登入 Juno
-      await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2' });
+      await page.goto('https://www.jsene.com/juno/Login.aspx', {
+        waitUntil: 'networkidle2',
+        timeout: 60000 // 延長為 60 秒
+      });
       await page.type('#T_Account', username);
       await page.type('#T_Password', password);
       await Promise.all([
