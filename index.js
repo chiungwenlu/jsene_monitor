@@ -129,6 +129,17 @@ function scheduleDailyNightCheck() {
     }, delay);
 }
 
+async function triggerRenderRestart() {
+    try {
+      const renderHookUrl = process.env.RENDER_DEPLOY_HOOK_URL;
+      const res = await axios.post(renderHookUrl);
+      console.log('✅ 已觸發 Render 重啟：', res.status);
+    } catch (err) {
+      console.error('❌ 無法觸發 Render 重啟：', err.message);
+    }
+  }
+  
+
 // ----------------------- PM10 數據抓取與處理相關函式 -----------------------
 async function getDynamicDataURL(stationId) {
     const now = moment().tz('Asia/Taipei');
@@ -515,7 +526,23 @@ async function loginAndFetchPM10Data() {
       }
   
     } catch (err) {
-      console.error('❌ 整體抓取流程錯誤：', err.message);
+        console.error('❌ 整體抓取流程錯誤：', err.message);
+        // 若超過1小時都沒有抓到新資料，則強制 Render Reset
+        const now = Date.now();
+        const ONE_HOUR = 60 * 60 * 1000;
+        const lastSuccess = lastSuccessfulTime184 || firstAttemptTime184 || 0;
+
+        if (now - lastSuccess > ONE_HOUR) {
+            const snapshot = await db.ref('settings/last_reset_time').once('value');
+            const lastReset = snapshot.val() || 0;
+            if (now - lastReset > ONE_HOUR) {
+            console.warn('⚠️ 測站 184 超過 1 小時無更新，觸發 Render Reset');
+            await db.ref('settings/last_reset_time').set(now);
+            await triggerRenderRestart();
+            } else {
+            console.log('⏱ Reset 已於 1 小時內觸發過，略過此次重啟');
+            }
+        }
     } finally {
       await browser.close();
     }
