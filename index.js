@@ -743,7 +743,7 @@ async function handleEvent(event) {
         await checkAndUpdateUserProfile(userId, receivedMessage);
         
         let replyMessage = '';
-        const recognizedCommands = ["即時查詢", "即時查詢(視網站連線速度，查詢結果需等待30~60秒)", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超標警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
+        const recognizedCommands = ["即時查詢", "即時查詢(視網站連線速度，查詢結果需等待60~90秒)", "24小時記錄", "查詢訊息配額", "設定PM10閾值", "超標警報間隔(分鐘)", "顯示常用指令", "取消", "使用者"];
   
         let waitingSnapshot = await db.ref(`users/${userId}/waitingForSetting`).once('value');
         let waitingForSetting = waitingSnapshot.val() || null;
@@ -792,7 +792,7 @@ async function handleEvent(event) {
             }
         }
   
-        if (receivedMessage === '即時查詢' || receivedMessage === '即時查詢(視網站連線速度，查詢結果需等待30~60秒)') {
+        if (receivedMessage === '即時查詢' || receivedMessage === '即時查詢(視網站連線速度，查詢結果需等待60~90秒)') {
             console.log('執行即時查詢');
 
             const snapshot = await db.ref('pm10_records').limitToLast(1).once('value');
