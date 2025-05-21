@@ -22,11 +22,6 @@ let firstAttemptTime185 = null;
 let lastSuccessfulTimeDacheng = null;
 let firstAttemptTimeDacheng = null;
 
-// 新增：時段與間隔常數
-const START_HOUR = 8;
-const END_HOUR   = 18;
-const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
@@ -426,8 +421,7 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取測站 184 發生錯誤：', err.message);
-        // await checkStationDataInFirebase('184');
-        await broadcastNoDataWarning('184', null);
+        await checkStationDataInFirebase('184');
       }
       try {
         const result185 = await fetchStationData(page, '3100185');
@@ -436,8 +430,7 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取測站 185 發生錯誤：', err.message);
-        //await checkStationDataInFirebase('185');
-        await broadcastNoDataWarning('185', null);
+        await checkStationDataInFirebase('185');
       }
   
       // 抓取大城測站
@@ -452,8 +445,7 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 大城測站抓取成功，共 ${Object.keys(stationDachengData).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取大城測站發生錯誤：', err.message);
-        //await checkStationDataInFirebase('dacheng');
-        await broadcastNoDataWarning('dacheng', null);
+        await checkStationDataInFirebase('dacheng');
       }
   
       // 合併所有時間點
@@ -556,72 +548,59 @@ async function loginAndFetchPM10Data() {
     }
 }
 
-// 在2025.05.21的修改後，先行註解掉，之後broadcastNoDataWarning運作順利後再決定是否刪除
-// async function checkStationDataInFirebase(stationId) {
-//     try {
-//       const snapshot = await db.ref('pm10_records')
-//         .orderByKey()
-//         .limitToLast(200)
-//         .once('value');
-//       const records = snapshot.val() || {};
+async function checkStationDataInFirebase(stationId) {
+    try {
+      const snapshot = await db.ref('pm10_records')
+        .orderByKey()
+        .limitToLast(200)
+        .once('value');
+      const records = snapshot.val() || {};
   
-//       let latestTimestampWithData = null;
-//       let latestTimeString = null;
-//       const stationKey = (stationId === '184') ? 'station_184'
-//                        : (stationId === '185') ? 'station_185'
-//                        : (stationId === 'dacheng') ? 'station_dacheng'
-//                        : `station_${stationId}`;
+      let latestTimestampWithData = null;
+      let latestTimeString = null;
+      const stationKey = (stationId === '184') ? 'station_184'
+                       : (stationId === '185') ? 'station_185'
+                       : (stationId === 'dacheng') ? 'station_dacheng'
+                       : `station_${stationId}`;
   
-//       for (const [tsKey, data] of Object.entries(records)) {
-//         if (data[stationKey] !== null && data[stationKey] !== undefined) {
-//           const ts = Number(tsKey);
-//           if (!latestTimestampWithData || ts > latestTimestampWithData) {
-//             latestTimestampWithData = ts;
-//             latestTimeString = data.time;
-//           }
-//         }
-//       }
+      for (const [tsKey, data] of Object.entries(records)) {
+        if (data[stationKey] !== null && data[stationKey] !== undefined) {
+          const ts = Number(tsKey);
+          if (!latestTimestampWithData || ts > latestTimestampWithData) {
+            latestTimestampWithData = ts;
+            latestTimeString = data.time;
+          }
+        }
+      }
   
-//       if (!latestTimestampWithData) {
-//         console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
-//         await broadcastNoDataWarning(stationId);
-//         return;
-//       }
+      if (!latestTimestampWithData) {
+        console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
+        await broadcastNoDataWarning(stationId);
+        return;
+      }
   
-//       const now = Date.now();
-//       const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-//       if (now - latestTimestampWithData > TWELVE_HOURS) {
-//         console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
-//         await broadcastNoDataWarning(stationId, latestTimeString);
-//       } else {
-//         console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
-//       }
-//     } catch (error) {
-//       console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
-//     }
-// }
+      const now = Date.now();
+      const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+      if (now - latestTimestampWithData > TWELVE_HOURS) {
+        console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
+        await broadcastNoDataWarning(stationId, latestTimeString);
+      } else {
+        console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
+      }
+    } catch (error) {
+      console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
+    }
+}
   
 async function broadcastNoDataWarning(stationId, timeString) {
-    // 取現在時間
-    const now = Date.now();
-    const hour = new Date(now).getHours();
-  
-    // 1. 若不在 08～18 時間內，直接跳過
-    if (hour < START_HOUR || hour >= END_HOUR) return;
-  
-    // 2. 檢查同一站點是否已在12小時內發過警告
-    const lastAlert = await getLastAlertTimeForStation(stationId);
-    if (lastAlert && (now - lastAlert < TWELVE_HOURS)) return;
-  
-    // 組訊息
-    let msg = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
+    // 先跳過大城測站
+    if (stationId === 'dacheng') return;
+
+    let alertMessage = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
     if (timeString) {
-      msg += `\n最後一次有數據時間：${timeString}`;
+        alertMessage += `\n最後一次有數據時間：${timeString}`;
     }
-  
-    // 發送並更新 last_alert_time
-    await client.broadcast({ type: 'text', text: msg });
-    await updateLastAlertTimeForStation(stationId, now);
+    await client.broadcast({ type: 'text', text: alertMessage });
 }
   
 async function getMessageQuota() {
