@@ -426,8 +426,7 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 測站 184 抓取成功，共 ${Object.keys(station184Data).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取測站 184 發生錯誤：', err.message);
-        // await checkStationDataInFirebase('184');
-        await broadcastNoDataWarning('184', null);
+        await broadcastNoDataWarning('184', lastSuccessfulTime184);
       }
       try {
         const result185 = await fetchStationData(page, '3100185');
@@ -436,8 +435,7 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 測站 185 抓取成功，共 ${Object.keys(station185Data).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取測站 185 發生錯誤：', err.message);
-        //await checkStationDataInFirebase('185');
-        await broadcastNoDataWarning('185', null);
+        await broadcastNoDataWarning('185', lastSuccessfulTime185);
       }
   
       // 抓取大城測站
@@ -452,8 +450,8 @@ async function loginAndFetchPM10Data() {
         console.log(`✅ 大城測站抓取成功，共 ${Object.keys(stationDachengData).length} 筆資料`);
       } catch (err) {
         console.error('❌ 抓取大城測站發生錯誤：', err.message);
-        //await checkStationDataInFirebase('dacheng');
-        await broadcastNoDataWarning('dacheng', null);
+        await broadcastNoDataWarning('大城', lastSuccessfulTime185);
+        // await broadcastNoDataWarning('dacheng', null);
       }
   
       // 合併所有時間點
@@ -601,27 +599,27 @@ async function loginAndFetchPM10Data() {
 //     }
 // }
   
-async function broadcastNoDataWarning(stationId, timeString) {
-    // 取現在時間
-    const now = Date.now();
-    const hour = new Date(now).getHours();
-  
-    // 1. 若不在 08～18 時間內，直接跳過
-    if (hour < START_HOUR || hour >= END_HOUR) return;
-  
-    // 2. 檢查同一站點是否已在12小時內發過警告
-    const lastAlert = await getLastAlertTimeForStation(stationId);
-    if (lastAlert && (now - lastAlert < TWELVE_HOURS)) return;
-  
-    // 組訊息
-    let msg = `⚠️ 警告：測站 ${stationId} 已超過 12 小時無數據，請檢查系統狀態！`;
-    if (timeString) {
-      msg += `\n最後一次有數據時間：${timeString}`;
-    }
-  
-    // 發送並更新 last_alert_time
-    await client.broadcast({ type: 'text', text: msg });
-    await updateLastAlertTimeForStation(stationId, now);
+
+// 1) 以台北時間判斷 08:00～18:00
+// 2) 判斷距離上次成功抓資料是否已超過 12 小時
+async function broadcastNoDataWarning(stationId, lastSuccessTs) {
+  const now = moment().tz('Asia/Taipei');
+  const hour = now.hour();
+
+  // 只在台北時間 08:00～18:00 內
+  if (hour < 8 || hour >= 18) return;
+
+  // 若尚未有成功時間，或距離上次成功時間不足 12 小時，則不發警告
+  if (!lastSuccessTs || now.diff(moment(lastSuccessTs)) < TWELVE_HOURS) return;
+
+  // 發送警告
+  await client.broadcast({
+    type: 'text',
+    text: `⚠️ 警告：測站 ${stationId} 已超過 12 小時無資料，請檢查系統狀態！`
+  });
+
+  // 更新最後警告時間（避免重複警告太勤）
+  await updateLastAlertTimeForStation(stationId, now.valueOf());
 }
   
 async function getMessageQuota() {
