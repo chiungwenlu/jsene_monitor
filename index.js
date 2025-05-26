@@ -612,11 +612,11 @@ async function broadcastNoDataWarning(stationId, lastSuccessTs) {
   // 若尚未有成功時間，或距離上次成功時間不足 12 小時，則不發警告
   if (!lastSuccessTs || now.diff(moment(lastSuccessTs)) < TWELVE_HOURS) return;
 
-  // 發送警告
-  await client.broadcast({
-    type: 'text',
-    text: `⚠️ 警告：測站 ${stationId} 已超過 12 小時無資料，請檢查系統狀態！`
-  });
+  // 發送警告,暫停發送，待修正2025.05.26
+//   await client.broadcast({
+//     type: 'text',
+//     text: `⚠️ 警告：測站 ${stationId} 已超過 12 小時無資料，請檢查系統狀態！`
+//   });
 
   // 更新最後警告時間（避免重複警告太勤）
   await updateLastAlertTimeForStation(stationId, now.valueOf());
