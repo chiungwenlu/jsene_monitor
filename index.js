@@ -390,6 +390,7 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
       finalAlertMessage = await appendQuotaInfo(finalAlertMessage);
       console.log(finalAlertMessage);
       await client.broadcast({ type: 'text', text: finalAlertMessage });
+      await updateLastAlertTimeForStation('global', now); // ← 加上這行，看警告的時間間隔是否能發揮作用07/26！
     }
 }
 
@@ -554,52 +555,6 @@ async function loginAndFetchPM10Data() {
     }
 }
 
-// 在2025.05.21的修改後，先行註解掉，之後broadcastNoDataWarning運作順利後再決定是否刪除
-// async function checkStationDataInFirebase(stationId) {
-//     try {
-//       const snapshot = await db.ref('pm10_records')
-//         .orderByKey()
-//         .limitToLast(200)
-//         .once('value');
-//       const records = snapshot.val() || {};
-  
-//       let latestTimestampWithData = null;
-//       let latestTimeString = null;
-//       const stationKey = (stationId === '184') ? 'station_184'
-//                        : (stationId === '185') ? 'station_185'
-//                        : (stationId === 'dacheng') ? 'station_dacheng'
-//                        : `station_${stationId}`;
-  
-//       for (const [tsKey, data] of Object.entries(records)) {
-//         if (data[stationKey] !== null && data[stationKey] !== undefined) {
-//           const ts = Number(tsKey);
-//           if (!latestTimestampWithData || ts > latestTimestampWithData) {
-//             latestTimestampWithData = ts;
-//             latestTimeString = data.time;
-//           }
-//         }
-//       }
-  
-//       if (!latestTimestampWithData) {
-//         console.warn(`測站 ${stationId} 在 Firebase 中找不到任何有效紀錄，可能長期無數據。`);
-//         await broadcastNoDataWarning(stationId);
-//         return;
-//       }
-  
-//       const now = Date.now();
-//       const TWELVE_HOURS = 12 * 60 * 60 * 1000;
-//       if (now - latestTimestampWithData > TWELVE_HOURS) {
-//         console.warn(`測站 ${stationId} 最後有效紀錄時間戳 ${latestTimestampWithData}，已超過 12 小時無數據`);
-//         await broadcastNoDataWarning(stationId, latestTimeString);
-//       } else {
-//         console.log(`測站 ${stationId} 在 Firebase 中最後有效紀錄時間戳：${latestTimestampWithData} (時間: ${latestTimeString})，尚未超過 12 小時`);
-//       }
-//     } catch (error) {
-//       console.error(`❌ checkStationDataInFirebase(${stationId}) 發生錯誤：`, error);
-//     }
-// }
-  
-
 // 1) 以台北時間判斷 08:00～18:00
 // 2) 判斷距離上次成功抓資料是否已超過 12 小時
 async function broadcastNoDataWarning(stationId, lastSuccessTs) {
@@ -611,12 +566,6 @@ async function broadcastNoDataWarning(stationId, lastSuccessTs) {
 
   // 若尚未有成功時間，或距離上次成功時間不足 12 小時，則不發警告
   if (!lastSuccessTs || now.diff(moment(lastSuccessTs)) < TWELVE_HOURS) return;
-
-  // 發送警告,暫停發送，待修正2025.05.26
-//   await client.broadcast({
-//     type: 'text',
-//     text: `⚠️ 警告：測站 ${stationId} 已超過 12 小時無資料，請檢查系統狀態！`
-//   });
 
   // 更新最後警告時間（避免重複警告太勤）
   await updateLastAlertTimeForStation(stationId, now.valueOf());
