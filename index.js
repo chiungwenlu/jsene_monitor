@@ -24,8 +24,9 @@ let firstAttemptTimeDacheng = null;
 
 // 新增：時段與間隔常數
 const START_HOUR = 8;
-const END_HOUR   = 18;
+const END_HOUR   = 17;
 const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
 
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -343,7 +344,7 @@ async function checkNightTimeThresholds() {
     }
 
     if (alertMessages.length > 0) {
-        let msg = `🌙 夜間 PM10 超標記錄（昨晚18:00～今日08:00）\n\n${alertMessages.join('\n\n')}`;
+        let msg = `🌙 夜間 PM10 超標記錄（昨晚17:00～今日08:00）\n\n${alertMessages.join('\n\n')}`;
         msg = await appendQuotaInfo(msg);
         await client.broadcast({ type: 'text', text: msg });
     }
@@ -352,12 +353,12 @@ async function checkNightTimeThresholds() {
   
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
 
-    // 檢查是否為警告發送時間 08:00 ~18:00
+    // 檢查是否為警告發送時間 08:00 ~17:00
     const nowMoment = moment().tz('Asia/Taipei');
     const currentHour = nowMoment.hour();
 
-    if (currentHour < 8 || currentHour >= 18) {
-        console.log('🕗 非警示時間段（08:00~18:00），略過即時警示。');
+    if (currentHour < 8 || currentHour >= 17) {
+        console.log('🕗 非警示時間段（08:00~17:00），略過即時警示。');
         return;
     }
 
@@ -561,8 +562,8 @@ async function broadcastNoDataWarning(stationId, lastSuccessTs) {
   const now = moment().tz('Asia/Taipei');
   const hour = now.hour();
 
-  // 只在台北時間 08:00～18:00 內
-  if (hour < 8 || hour >= 18) return;
+  // 只在台北時間 08:00～17:00 內
+  if (hour < 8 || hour >= 17) return;
 
   // 若尚未有成功時間，或距離上次成功時間不足 12 小時，則不發警告
   if (!lastSuccessTs || now.diff(moment(lastSuccessTs)) < TWELVE_HOURS) return;
@@ -807,11 +808,11 @@ async function handleEvent(event) {
                             }
                         }
                     }
-                    if (alertRecords.length > 0) {
-                        replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
-                    } else {
-                        replyMessage += `\n\n✅ 24小時內無超標記錄。`;
-                    }
+                    // if (alertRecords.length > 0) {
+                    //     replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
+                    // } else {
+                    //     replyMessage += `\n\n✅ 24小時內無超標記錄。`;
+                    // }
                     
                     replyMessage = await appendQuotaInfo(replyMessage);
                     return client.replyMessage(event.replyToken, { type: 'text', text: replyMessage });
@@ -858,11 +859,11 @@ async function handleEvent(event) {
                         }
                     }
                 }
-                if (alertRecords.length > 0) {
-                    replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
-                } else {
-                    replyMessage += `\n\n✅ 24小時內無超標記錄。`;
-                }
+                // if (alertRecords.length > 0) {
+                //     replyMessage += `\n\n⚠️ 24小時內超標記錄:\n${alertRecords.join("\n\n")}`;
+                // } else {
+                //     replyMessage += `\n\n✅ 24小時內無超標記錄。`;
+                // }
             } else {
                 replyMessage = '⚠️ 目前無法獲取最新的 PM10 數據，請稍後再試。';
             }
