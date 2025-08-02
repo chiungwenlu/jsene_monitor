@@ -909,11 +909,11 @@ async function handleEvent(event) {
             // 寫入檔案
             const filePath = path.join(__dirname, 'records', '24hr_record.txt');
             fs.writeFileSync(filePath, fileContent, 'utf8');
-            if (alertRecords.length > 0) {
-                recordText += '⚠️ 以下為 PM10 超標的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
-            } else {
-                recordText += '✅ 過去 24 小時內無 PM10 數據超標。\n\n';
-            }
+            // if (alertRecords.length > 0) {
+            //     recordText += '⚠️ 以下為 PM10 超標的部分:\n\n' + alertRecords.join('\n\n') + '\n\n';
+            // } else {
+            //     recordText += '✅ 過去 24 小時內無 PM10 數據超標。\n\n';
+            // }
             recordText += `📥 下載完整 24 小時記錄: \n👉 [點擊下載](https://mobile-env-monitor.onrender.com/download/24hr_record.txt)`;
             recordText = await appendQuotaInfo(recordText);
             return client.replyMessage(event.replyToken, { type: 'text', text: recordText });
