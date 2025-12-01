@@ -46,13 +46,13 @@ async function updateLastAlertTimeForStation(stationId, timestamp) {
     await db.ref('settings/' + key).set(timestamp);
 }
 
-// [修正] 成功時更新時間，並清除「初次失敗時間」
+// 成功時更新時間，並清除「初次失敗時間」
 async function updateLastSuccessTime(stationId, timestamp) {
     await db.ref(`status/last_success_${stationId}`).set(timestamp);
     await db.ref(`status/first_fail_${stationId}`).remove(); // 清除失敗標記
 }
 
-// [修正] 記錄初次失敗時間 (如果已經有紀錄就不覆蓋，保留最早的那次)
+// 記錄初次失敗時間 (如果已經有紀錄就不覆蓋，保留最早的那次)
 async function recordFetchFailure(stationId) {
     const ref = db.ref(`status/first_fail_${stationId}`);
     const snapshot = await ref.once('value');
@@ -516,7 +516,7 @@ async function loginAndFetchPM10Data() {
     }
 }
 
-// [修正] 通用的無資料檢查 (支援初次失敗檢查 + 晚間靜音)
+// 通用的無資料檢查 (支援初次失敗檢查 + 晚間靜音)
 async function checkMissingDataAlert(stationKey, stationName) {
     // 1. 時間檢查：如果是 17:00 後 或 08:00 前，直接跳出
     const nowMoment = moment().tz('Asia/Taipei');
@@ -680,7 +680,9 @@ async function handleEvent(event) {
         
         if (data) {
             const entry = Object.values(data)[0];
-            const timeDiff = moment().tz('Asia/Taipei').diff(moment(entry.time, 'YYYY/MM/DD HH:mm'), 'minutes');
+            const recordTimeMoment = moment.tz(entry.time, 'YYYY/MM/DD HH:mm', 'Asia/Taipei');
+            const nowMoment = moment().tz('Asia/Taipei');
+            const timeDiff = nowMoment.diff(recordTimeMoment, 'minutes');
             
             msg = `📡 PM10 即時查詢\n📅 時間: ${entry.time}\n` +
                   `🌍 184: ${entry.station_184 || '-'} | 185: ${entry.station_185 || '-'} | 大城: ${entry.station_dacheng || '-'}\n` +
@@ -737,8 +739,18 @@ async function handleEvent(event) {
                 items: [
                     { type: 'action', action: { type: 'message', label: '即時查詢', text: '即時查詢' } },
                     { type: 'action', action: { type: 'message', label: '24小時記錄', text: '24小時記錄' } },
+                    // [新增] 查詢訊息配額按鈕
+                    { type: 'action', action: { type: 'message', label: '查詢訊息配額', text: '查詢訊息配額' } },
                     { type: 'action', action: { type: 'message', label: '設定PM10閾值', text: '設定PM10閾值' } },
-                    { type: 'action', action: { type: 'message', label: '設定警報間隔', text: '超標警報間隔(分鐘)' } }
+                    { type: 'action', action: { type: 'message', label: '設定警報間隔', text: '超標警報間隔(分鐘)' } },
+                    { 
+                        type: 'action', 
+                        action: { 
+                            type: 'uri', 
+                            label: '前往Juno雲端數據中心', 
+                            uri: 'https://www.jsene.com/juno/Login.aspx' 
+                        } 
+                    }
                 ]
             }
         });
