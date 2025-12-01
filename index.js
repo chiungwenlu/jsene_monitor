@@ -15,10 +15,8 @@ let pm10Threshold = 126; // PM10 閾值：126
 let fetchInterval = null; 
 let alertInterval = 60; // 警報間隔：60 分鐘
 
-// --- [設定] 斷線警告時間 ---
-// 目前設定：12 小時 (12 * 60 * 60 * 1000)
-// 若要改為一天一次，請改為： 24 * 60 * 60 * 1000
-const MISSING_DATA_THRESHOLD = 12 * 60 * 60 * 1000;
+// 預設 12 小時 (內部變數使用毫秒)
+let missingDataThreshold = 12 * 60 * 60 * 1000;
 
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -120,6 +118,21 @@ function monitorAlertInterval() {
             if (newInterval !== alertInterval) {
                 console.log(`🔄 ALERT_INTERVAL 變更: ${newInterval} 分鐘`);
                 alertInterval = newInterval;
+            }
+        }
+    });
+}
+
+// 監聽斷線警告時間 (單位: 小時)
+function monitorMissingDataThreshold() {
+    db.ref('settings/MISSING_DATA_THRESHOLD').on('value', (snapshot) => {
+        const val = snapshot.val();
+        if (val) {
+            // 資料庫存的是「小時」，轉為「毫秒」
+            const newThreshold = Number(val) * 60 * 60 * 1000;
+            if (newThreshold !== missingDataThreshold) {
+                console.log(`🔄 斷線警告時間變更: ${val} 小時`);
+                missingDataThreshold = newThreshold;
             }
         }
     });
@@ -404,7 +417,7 @@ async function loginAndFetchPM10Data() {
     const username = settings.ACCOUNT_NAME || 'ExcelTek';
     const password = settings.ACCOUNT_PASSWORD || 'ExcelTek';
 
-    console.log(`🔹 參數檢查 - 間隔: ${scrapeInterval/60000}m, 警報間隔: ${alertInterval}m, 閾值: ${pm10Threshold}`);
+    console.log(`🔹 參數檢查 - 間隔: ${scrapeInterval/60000}m, 警報間隔: ${alertInterval}m, 閾值: ${pm10Threshold}, 斷線警告: ${missingDataThreshold/3600000}h`);
 
     try {
         await page.goto('https://www.jsene.com/juno/Login.aspx', { waitUntil: 'networkidle2', timeout: 60000 });
@@ -543,11 +556,12 @@ async function checkMissingDataAlert(stationKey, stationName) {
     const now = Date.now();
     const lastAlert = await getLastAlertTimeForStation(stationKey);
 
-    // 計算斷線時間
-    if ((now - referenceTime > MISSING_DATA_THRESHOLD) && 
-        (!lastAlert || now - lastAlert > MISSING_DATA_THRESHOLD)) {
+    // 使用動態變數 missingDataThreshold
+    if ((now - referenceTime > missingDataThreshold) && 
+        (!lastAlert || now - lastAlert > missingDataThreshold)) {
         
-        let msg = `⚠️ 警告：測站 ${stationName} 已失去數據超過 ${MISSING_DATA_THRESHOLD / 3600000} 小時，請檢查系統狀態！`;
+        let hours = missingDataThreshold / 3600000;
+        let msg = `⚠️ 警告：測站 ${stationName} 已失去數據超過 ${hours} 小時，請檢查系統狀態！`;
         msg = await appendQuotaInfo(msg);
         console.log(msg);
         try {
@@ -671,6 +685,12 @@ async function handleEvent(event) {
             await db.ref(`users/${userId}/waitingForSetting`).remove();
             return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 警報間隔已設為 ${numVal} 分鐘` });
         }
+        if (waitingFor === 'MISSING_DATA_THRESHOLD') {
+            if (isNaN(numVal) || numVal < 1) return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入大於 1 的小時數。' });
+            await db.ref('settings/MISSING_DATA_THRESHOLD').set(numVal);
+            await db.ref(`users/${userId}/waitingForSetting`).remove();
+            return client.replyMessage(event.replyToken, { type: 'text', text: `✅ 斷線警告時間已設為 ${numVal} 小時` });
+        }
     }
 
     if (text.includes('即時查詢')) {
@@ -720,6 +740,11 @@ async function handleEvent(event) {
         return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入新的間隔分鐘數 (例如 60):' });
     }
 
+    if (text === '設定斷線警告時間(小時)') {
+        await db.ref(`users/${userId}/waitingForSetting`).set("MISSING_DATA_THRESHOLD");
+        return client.replyMessage(event.replyToken, { type: 'text', text: '請輸入斷線警告的容許時數 (例如 12):' });
+    }
+
     if (text === '查詢訊息配額') {
         const q = await getMessageQuota();
         const c = await getMessageQuotaConsumption();
@@ -739,10 +764,10 @@ async function handleEvent(event) {
                 items: [
                     { type: 'action', action: { type: 'message', label: '即時查詢', text: '即時查詢' } },
                     { type: 'action', action: { type: 'message', label: '24小時記錄', text: '24小時記錄' } },
-                    // [新增] 查詢訊息配額按鈕
                     { type: 'action', action: { type: 'message', label: '查詢訊息配額', text: '查詢訊息配額' } },
                     { type: 'action', action: { type: 'message', label: '設定PM10閾值', text: '設定PM10閾值' } },
                     { type: 'action', action: { type: 'message', label: '設定警報間隔', text: '超標警報間隔(分鐘)' } },
+                    { type: 'action', action: { type: 'message', label: '設定斷線時限', text: '設定斷線警告時間(小時)' } },
                     { 
                         type: 'action', 
                         action: { 
@@ -784,12 +809,21 @@ app.listen(PORT, async () => {
     if (s.SCRAPE_INTERVAL) scrapeInterval = Number(s.SCRAPE_INTERVAL) * 60 * 1000;
     if (s.PM10_THRESHOLD) pm10Threshold = Number(s.PM10_THRESHOLD);
     if (s.ALERT_INTERVAL) alertInterval = Number(s.ALERT_INTERVAL);
+    // [新增] 初始化邏輯：若 DB 有設定則讀取，若無則寫入預設值 12
+    if (s.MISSING_DATA_THRESHOLD) {
+        missingDataThreshold = Number(s.MISSING_DATA_THRESHOLD) * 60 * 60 * 1000;
+        console.log(`🔹 讀取斷線設定: ${s.MISSING_DATA_THRESHOLD} 小時`);
+    } else {
+        await db.ref('settings/MISSING_DATA_THRESHOLD').set(12);
+        console.log(`🔹 初始化斷線設定: 寫入預設值 12 小時`);
+    }
 
     if (!fs.existsSync(path.join(__dirname, 'records'))) fs.mkdirSync(path.join(__dirname, 'records'));
 
     monitorScrapeInterval();
     monitorPM10Threshold();
     monitorAlertInterval();
+    monitorMissingDataThreshold(); // 啟動監聽
     
     loginAndFetchPM10Data(); 
     restartFetchInterval();
