@@ -10,13 +10,15 @@ const path = require('path');
 const app = express();
 
 // --- 設定變數 ---
-let scrapeInterval = 10 * 60 * 1000; // 預設 10 分鐘
-let pm10Threshold = 126; // 預設 126
+let scrapeInterval = 10 * 60 * 1000; // 抓取頻率：10 分鐘
+let pm10Threshold = 126; // PM10 閾值：126
 let fetchInterval = null; 
-let alertInterval = 60; // 預設 60 分鐘
+let alertInterval = 60; // 警報間隔：60 分鐘
 
-// 新增：時段與間隔常數
-const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+// --- [設定] 斷線警告時間 ---
+// 目前設定：12 小時 (12 * 60 * 60 * 1000)
+// 若要改為一天一次，請改為： 24 * 60 * 60 * 1000
+const MISSING_DATA_THRESHOLD = 12 * 60 * 60 * 1000;
 
 // 從環境變量讀取 Firebase Admin SDK 配置
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -33,9 +35,7 @@ async function getFirebaseSettings() {
     return snapshot.val() || {};
 }
 
-// 通用的取得最後警報時間
 async function getLastAlertTimeForStation(stationId) {
-    // 統一處理 key 名稱，global 用於 PM10 超標警報
     let key = (stationId === 'global') ? 'last_alert_time_global' : `last_alert_time_${stationId}`;
     const snapshot = await db.ref('settings/' + key).once('value');
     return snapshot.val() || null;
@@ -46,14 +46,32 @@ async function updateLastAlertTimeForStation(stationId, timestamp) {
     await db.ref('settings/' + key).set(timestamp);
 }
 
-// [修改] 將最後成功抓取時間存入 Firebase，避免 Render 重啟後遺失
+// [修正] 成功時更新時間，並清除「初次失敗時間」
+async function updateLastSuccessTime(stationId, timestamp) {
+    await db.ref(`status/last_success_${stationId}`).set(timestamp);
+    await db.ref(`status/first_fail_${stationId}`).remove(); // 清除失敗標記
+}
+
+// [修正] 記錄初次失敗時間 (如果已經有紀錄就不覆蓋，保留最早的那次)
+async function recordFetchFailure(stationId) {
+    const ref = db.ref(`status/first_fail_${stationId}`);
+    const snapshot = await ref.once('value');
+    if (!snapshot.exists()) {
+        await ref.set(Date.now());
+        console.log(`⚠️ 測站 ${stationId} 初次失敗，已記錄開始斷線時間`);
+    }
+}
+
+// 取得最後成功時間
 async function getLastSuccessTime(stationId) {
     const snapshot = await db.ref(`status/last_success_${stationId}`).once('value');
     return snapshot.val() || null;
 }
 
-async function updateLastSuccessTime(stationId, timestamp) {
-    await db.ref(`status/last_success_${stationId}`).set(timestamp);
+// 取得初次失敗時間
+async function getFirstFailTime(stationId) {
+    const snapshot = await db.ref(`status/first_fail_${stationId}`).once('value');
+    return snapshot.val() || null;
 }
 
 async function getLastFetchTime() {
@@ -98,7 +116,7 @@ function monitorAlertInterval() {
     db.ref('settings/ALERT_INTERVAL').on('value', (snapshot) => {
         const val = snapshot.val();
         if (val) {
-            const newInterval = Number(val); // 強制轉為數字
+            const newInterval = Number(val);
             if (newInterval !== alertInterval) {
                 console.log(`🔄 ALERT_INTERVAL 變更: ${newInterval} 分鐘`);
                 alertInterval = newInterval;
@@ -153,8 +171,7 @@ async function getDynamicDataURL(stationId) {
 
     if (lastFetch) {
         d1Moment = moment(lastFetch).tz('Asia/Taipei');
-        // [優化] 防止若 lastFetch 太久以前 (例如停機一天)，一次抓太多資料導致超時
-        // 設定最大回溯時間為 3 小時
+        // 防止過久回溯
         const threeHoursAgo = now.clone().subtract(3, 'hours');
         if (d1Moment.isBefore(threeHoursAgo)) {
             console.log('⚠️ 上次抓取時間過久，重置為 3 小時前開始抓取');
@@ -205,7 +222,7 @@ async function fetchStationData(page, stationId) {
         throw new Error(`測站 ${stationId} 抓取成功但 0 筆資料`);
     }
 
-    // 更新該測站最後成功時間到 Firebase
+    // 成功：更新最後成功時間 (會清除失敗紀錄)
     await updateLastSuccessTime(stationId, Date.now());
 
     return { data: pm10Data, endTimeTimestamp };
@@ -214,7 +231,6 @@ async function fetchStationData(page, stationId) {
 // 抓取大城站
 async function fetchPM10FromDacheng() {
     console.log('📊 嘗試抓取大城測站的數據...');
-    // [優化] Render 環境建議加上 --no-sandbox 參數
     const browser = await puppeteer.launch({ 
         headless: "new",
         args: ['--no-sandbox', '--disable-setuid-sandbox'] 
@@ -241,7 +257,7 @@ async function fetchPM10FromDacheng() {
         const dateTime = await page.$eval('.date', el => el.childNodes[0].textContent.trim());
         const timestamp = moment.tz(dateTime, 'YYYY/MM/DD HH:mm', 'Asia/Taipei').valueOf();
 
-        // 更新大城成功時間
+        // 成功
         await updateLastSuccessTime('dacheng', Date.now());
 
         console.log(`✅ 大城測站時間：${dateTime}，PM10：${value}`);
@@ -267,7 +283,6 @@ async function pruneOldData() {
 
 async function saveToFirebase(mergedData, lastTimestamp) {
     const dataRef = db.ref('pm10_records');
-    // 為了效能，可以考慮使用 update 一次寫入多筆，這裡維持原本邏輯但加強 Log
     for (const entry of mergedData) {
         const tsKey = entry.timestamp.toString();
         const recordRef = dataRef.child(tsKey);
@@ -290,11 +305,8 @@ async function saveToFirebase(mergedData, lastTimestamp) {
 
 async function checkNightTimeThresholds() {
     const now = moment().tz('Asia/Taipei');
-    const start = now.clone().subtract(1, 'day').hour(17).minute(0).second(0); // 昨天17:00
-    const end = now.clone().hour(8).minute(0).second(0); // 今天08:00
-
-    // 若現在時間剛好是早上8點多，檢查範圍就是 昨天17:00 ~ 今天08:00
-    // 此邏輯假設此函式每天早上執行一次
+    const start = now.clone().subtract(1, 'day').hour(17).minute(0).second(0);
+    const end = now.clone().hour(8).minute(0).second(0);
 
     const snapshot = await db.ref('pm10_records')
         .orderByKey()
@@ -324,29 +336,24 @@ async function checkNightTimeThresholds() {
     }
 }
 
-// ----------------------- 核心：閾值檢查與警報 -----------------------
-
 async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     const nowMoment = moment().tz('Asia/Taipei');
     const currentHour = nowMoment.hour();
     const nowTs = nowMoment.valueOf();
 
-    // 1. 時間檢查 (08:00 ~ 17:00)
+    // PM10 超標警報：只在 08:00 ~ 17:00 運作
     if (currentHour < 8 || currentHour >= 17) {
         console.log('🕗 非警示時間段，略過即時警示。');
         return;
     }
 
-    // 2. 警報間隔檢查
-    // 必須確保 alertInterval 是數字
     const safeIntervalMs = (Number(alertInterval) || 60) * 60 * 1000;
     const lastAlertTime = await getLastAlertTimeForStation('global');
     
     if (lastAlertTime) {
         const diff = nowTs - lastAlertTime;
-        const diffMinutes = Math.floor(diff / 60000);
         if (diff < safeIntervalMs) {
-            console.log(`⚠️ 警告間隔內 (已過 ${diffMinutes} 分鐘 / 設定 ${alertInterval} 分鐘)，不發送新警告。`);
+            console.log(`⚠️ 警告間隔內 (已過 ${Math.floor(diff/60000)} 分)，不發送新警告。`);
             return;
         }
     }
@@ -354,13 +361,8 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
     let alertMessages = [];
     let alertHeader = "🚨 PM10 超標警報！\n\n";
 
-    // 為了避免重複對同一筆舊資料報警，這裡可以考慮只檢查「最新」的一筆，
-    // 或者我們假設 mergedData 都是最近一次抓取的區間。
-    // 這裡維持檢查 mergedData 全部，但通常 mergedData 只有最近 10~20 分鐘的資料。
-
     for (const entry of mergedData) {
         let stationAlerts = [];
-        // [修正] 確保數值是數字再比較
         if (entry.station_184 !== null && Number(entry.station_184) > pm10Threshold) {
             stationAlerts.push(`🌍 測站184堤外: ${entry.station_184} µg/m³`);
         }
@@ -383,23 +385,16 @@ async function checkPM10Threshold(mergedData, pm10Threshold, alertInterval) {
         console.log("🚀 準備發送 LINE 警報...");
         try {
             await client.broadcast({ type: 'text', text: finalAlertMessage });
-            
-            // [關鍵修正] 只有在發送成功後才更新時間，並且加上 try-catch 確保執行
             await updateLastAlertTimeForStation('global', nowTs);
-            console.log(`✅ 警報已發送，更新最後警報時間為: ${moment(nowTs).format('HH:mm:ss')}`);
-            
+            console.log(`✅ 警報已發送`);
         } catch (error) {
             console.error('❌ LINE 警報發送失敗:', error.message);
-            // 發送失敗時不更新時間，這樣下次抓取時會再次嘗試
         }
     }
 }
 
-// ----------------------- 主流程：登入並抓取 -----------------------
-
 async function loginAndFetchPM10Data() {
     console.log('🔑 啟動 Juno 爬蟲...');
-    // [優化] Render 環境參數
     const browser = await puppeteer.launch({ 
         headless: "new",
         args: ['--no-sandbox', '--disable-setuid-sandbox'] 
@@ -423,8 +418,7 @@ async function loginAndFetchPM10Data() {
 
         let station184Data = {}, station185Data = {};
         let endTimeTimestamp = null;
-        const now = Date.now();
-
+        
         // 184
         try {
             const res184 = await fetchStationData(page, '3100184');
@@ -433,6 +427,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 184 取得 ${Object.keys(station184Data).length} 筆`);
         } catch (err) {
             console.error('❌ 184 抓取失敗:', err.message);
+            await recordFetchFailure('3100184'); // 記錄失敗時間
             await broadcastNoDataWarning('184');
         }
 
@@ -444,6 +439,7 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 185 取得 ${Object.keys(station185Data).length} 筆`);
         } catch (err) {
             console.error('❌ 185 抓取失敗:', err.message);
+            await recordFetchFailure('3100185'); // 記錄失敗時間
             await broadcastNoDataWarning('185');
         }
 
@@ -458,10 +454,10 @@ async function loginAndFetchPM10Data() {
             console.log(`✅ 大城取得資料: ${resultD.value}`);
         } catch (err) {
             console.error('❌ 大城抓取失敗:', err.message);
+            await recordFetchFailure('dacheng'); // 記錄失敗時間
             await broadcastNoDataWarning('dacheng');
         }
 
-        // 合併資料
         const allTimeKeys = new Set([
             ...Object.keys(station184Data),
             ...Object.keys(station185Data),
@@ -476,10 +472,8 @@ async function loginAndFetchPM10Data() {
             station_dacheng: stationDachengData[time] || null
         }));
 
-        // 排序
         mergedData.sort((a, b) => a.timestamp - b.timestamp);
 
-        // 填補大城空值 (若需要)
         let lastDacheng = null;
         for (const entry of mergedData) {
             if (entry.station_dacheng !== null) lastDacheng = entry.station_dacheng;
@@ -487,14 +481,13 @@ async function loginAndFetchPM10Data() {
         }
 
         if (mergedData.length > 0) {
-            // [修正] 傳遞變數時確保是數字
             await checkPM10Threshold(mergedData, Number(pm10Threshold), Number(alertInterval));
             await saveToFirebase(mergedData, endTimeTimestamp);
         } else {
             console.warn('⚠️ 本次無有效資料可儲存');
         }
 
-        // 檢查 12 小時無資料 (使用 Firebase 儲存的時間)
+        // 檢查無資料
         await checkMissingDataAlert('184', '184');
         await checkMissingDataAlert('185', '185');
         await checkMissingDataAlert('dacheng', '大城');
@@ -502,8 +495,10 @@ async function loginAndFetchPM10Data() {
     } catch (err) {
         console.error('❌ 總流程錯誤:', err.message);
         
-        // Render Reset 邏輯
-        const lastSuccess184 = await getLastSuccessTime('3100184'); // 取 DB
+        // 嘗試記錄所有測站失敗 (若尚未登入成功就掛了)
+        await recordFetchFailure('3100184');
+        
+        const lastSuccess184 = await getLastSuccessTime('3100184'); 
         const now = Date.now();
         const ONE_HOUR = 60 * 60 * 1000;
         
@@ -521,22 +516,38 @@ async function loginAndFetchPM10Data() {
     }
 }
 
-// 通用的無資料檢查 (12小時)
+// [修正] 通用的無資料檢查 (支援初次失敗檢查 + 晚間靜音)
 async function checkMissingDataAlert(stationKey, stationName) {
-    // 這裡 stationKey 對應到 updateLastSuccessTime 使用的 ID (例如 '3100184' 或 'dacheng')
-    // 但在呼叫端我用了 '184'，這裡做個對應修正
+    // 1. 時間檢查：如果是 17:00 後 或 08:00 前，直接跳出
+    const nowMoment = moment().tz('Asia/Taipei');
+    const currentHour = nowMoment.hour();
+    if (currentHour < 8 || currentHour >= 17) {
+        return;
+    }
+
     let dbKey = stationKey;
     if (stationKey === '184') dbKey = '3100184';
     if (stationKey === '185') dbKey = '3100185';
 
-    const lastSuccess = await getLastSuccessTime(dbKey);
-    if (!lastSuccess) return; // 從來沒成功過，先不報警
+    // 2. 優先取得最後成功時間
+    let referenceTime = await getLastSuccessTime(dbKey);
+
+    // 3. 如果從來沒有成功過，改抓「初次失敗時間」
+    if (!referenceTime) {
+        referenceTime = await getFirstFailTime(dbKey);
+    }
+
+    // 4. 如果連初次失敗時間都沒有 (代表系統運作正常，或還沒開始跑)，就不用檢查
+    if (!referenceTime) return;
 
     const now = Date.now();
-    const lastAlert = await getLastAlertTimeForStation(stationKey); // 這裡用簡短代碼做 key
+    const lastAlert = await getLastAlertTimeForStation(stationKey);
 
-    if ((now - lastSuccess > TWELVE_HOURS) && (!lastAlert || now - lastAlert > TWELVE_HOURS)) {
-        let msg = `⚠️ 警告：測站 ${stationName} 已失去數據超過 12 小時，請檢查系統狀態！`;
+    // 計算斷線時間
+    if ((now - referenceTime > MISSING_DATA_THRESHOLD) && 
+        (!lastAlert || now - lastAlert > MISSING_DATA_THRESHOLD)) {
+        
+        let msg = `⚠️ 警告：測站 ${stationName} 已失去數據超過 ${MISSING_DATA_THRESHOLD / 3600000} 小時，請檢查系統狀態！`;
         msg = await appendQuotaInfo(msg);
         console.log(msg);
         try {
@@ -548,14 +559,9 @@ async function checkMissingDataAlert(stationKey, stationName) {
     }
 }
 
-// 這是原本邏輯中的 "抓取失敗當下檢查"
-// 修正：現在主要依賴 checkMissingDataAlert 來做 12hr 檢查，這裡僅作 log 或短時效處理
 async function broadcastNoDataWarning(stationId) {
-    // 可以在這裡加一些 log，實際 12 小時警報交給 checkMissingDataAlert 統一處理
     console.log(`⚠️ 測站 ${stationId} 本次抓取失敗`);
 }
-
-// ----------------------- LINE 配額與使用者相關 -----------------------
 
 async function getMessageQuota() {
     try {
@@ -584,14 +590,13 @@ async function appendQuotaInfo(messageText) {
     const consumption = await getMessageQuotaConsumption();
     if (quota && consumption && quota.value !== -1) {
         const remaining = quota.value - consumption.totalUsage;
-        if (remaining <= 50) { // 提高警示門檻到 50
+        if (remaining <= 50) {
             messageText += `\n\n⚠️ 訊息額度剩餘: ${remaining} (總量 ${quota.value})`;
         }
     }
     return messageText;
 }
 
-// 使用者互動追蹤
 async function checkAndUpdateUserProfile(userId, interactionItem) {
     const now = moment().tz('Asia/Taipei').format('YYYY-MM-DD HH:mm:ss');
     const userRef = db.ref(`users/${userId}`);
@@ -622,16 +627,13 @@ async function handleFollowEvent(event) {
         type: 'message', 
         source: event.source, 
         replyToken: event.replyToken,
-        message: { type: 'text', text: '使用者' } // 模擬互動以建立資料
+        message: { type: 'text', text: '使用者' } 
     });
 }
 
 async function updateAllUserProfiles() {
-    // 略，保持原樣即可，或是為了節省資源可移除
     console.log('🔄 更新使用者資料 (排程執行)');
 }
-
-// ----------------------- LINE Webhook 處理 -----------------------
 
 const lineConfig = {
     channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -647,13 +649,11 @@ async function handleEvent(event) {
     const text = event.message.text.trim();
     await checkAndUpdateUserProfile(userId, text);
 
-    // 簡單指令處理
     if (text === '取消') {
         await db.ref(`users/${userId}/waitingForSetting`).remove();
         return client.replyMessage(event.replyToken, { type: 'text', text: '已取消設定。' });
     }
 
-    // 檢查是否有等待中的設定
     const waitSnap = await db.ref(`users/${userId}/waitingForSetting`).once('value');
     const waitingFor = waitSnap.val();
 
@@ -673,9 +673,7 @@ async function handleEvent(event) {
         }
     }
 
-    // 一般指令
     if (text.includes('即時查詢')) {
-        // 直接從 Firebase 拿最後一筆，不再重爬 (除非太舊)
         const snap = await db.ref('pm10_records').limitToLast(1).once('value');
         const data = snap.val();
         let msg = '⚠️ 暫無數據';
@@ -698,9 +696,6 @@ async function handleEvent(event) {
         const url = 'https://mobile-env-monitor.onrender.com/download/24hr_record.txt';
         let msg = `📥 下載 24 小時記錄:\n${url}`;
         
-        // 觸發生成檔案 (實際上 saveToFirebase 已經持續在做，這裡只需確保檔案存在)
-        // 為了簡化，建議由 saveToFirebase 或另外的排程產生檔案，這裡只給連結
-        // 或是即時生成檔案字串
         const cutoff = moment().subtract(24, 'hours').valueOf();
         const snap = await db.ref('pm10_records').orderByKey().startAt(cutoff.toString()).once('value');
         let fileContent = 'Time,184,185,Dacheng\n';
@@ -752,8 +747,6 @@ async function handleEvent(event) {
     return Promise.resolve(null);
 }
 
-// ----------------------- Express & Init -----------------------
-
 app.post('/webhook', line.middleware(lineConfig), (req, res) => {
     Promise.all(req.body.events.map(handleEvent))
         .then(result => res.json(result))
@@ -771,29 +764,25 @@ app.get('/download/24hr_record.txt', (req, res) => {
 
 app.post('/ping', (req, res) => res.send('pong'));
 
-// 啟動排程
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, async () => {
     console.log(`🌐 Server running on port ${PORT}`);
     
-    // 初始化設定
     const s = await getFirebaseSettings();
     if (s.SCRAPE_INTERVAL) scrapeInterval = Number(s.SCRAPE_INTERVAL) * 60 * 1000;
     if (s.PM10_THRESHOLD) pm10Threshold = Number(s.PM10_THRESHOLD);
     if (s.ALERT_INTERVAL) alertInterval = Number(s.ALERT_INTERVAL);
 
-    // 建立資料夾
     if (!fs.existsSync(path.join(__dirname, 'records'))) fs.mkdirSync(path.join(__dirname, 'records'));
 
     monitorScrapeInterval();
     monitorPM10Threshold();
     monitorAlertInterval();
     
-    loginAndFetchPM10Data(); // 立即執行一次
+    loginAndFetchPM10Data(); 
     restartFetchInterval();
     scheduleDailyNightCheck();
     
-    // 自我 Ping 防止休眠 (Render Free Tier 適用)
     setInterval(() => {
         axios.post(`https://pinger-app-m1tm.onrender.com/ping`, { msg: 'keepalive' }).catch(() => {});
     }, 10 * 60 * 1000);
